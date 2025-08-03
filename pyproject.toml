@@ -1,0 +1,21 @@
+[project]
+name = "my-research-assistant"
+version = "0.1.0"
+description = "Agentic research assistant, focused on Arxiv papers"
+readme = "README.md"
+authors = [
+    { name = "Jeff Fischer" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "arxiv>=2.2.0",
+    "llama-index>=0.13.0",
+    "mcp>=1.12.3",
+]
+
+[project.scripts]
+my-research-assistant = "my_research_assistant:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
