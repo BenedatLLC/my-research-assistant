@@ -1,120 +1,223 @@
-"""Tools to summarize papers"""
-
-import textwrap
-from os.path import join
-from typing import Optional
+import openai
+import fitz  # PyMuPDF
+import base64
+import json
+import os
 import io
 import numpy as np
+from os.path import join, basename
 from llama_index.llms.openai import OpenAI
-import fitz  # PyMuPDF
 from PIL import Image
+from typing import Optional, Dict, Any
 
-from .types import PaperMetadata
 from .file_locations import FILE_LOCATIONS
 
-# Define the prompt for summarization
-# This prompt guides the LLM to produce the desired structured output in Markdown.
-summarization_prompt = """
-Please summarize the following text block into a markdown document.
-The summary should include the following sections:
 
-1.  **Key ideas of the paper**: Briefly describe the main contributions and core concepts.
-2.  **Implementation approach**: Explain how the proposed method is built and works.
-3.  **Experiments**: Detail the experimental setup, datasets used, and key results.
-4.  **Related work**: Discuss how this work relates to and differs from previous research.
-
-The title of the markdown summary should be the title of the paper using a markdown level 1 header
-("#").
-
----
-Text to summarize:
-{{text_block}}
----
-
-Markdown Summary:
-"""
-
-class SummarizationError(Exception):
-    pass
-
-
-def extract_markdown(text:str) -> str:
-    """Look to see if the response has a ``` block of type markdown. If so,
-    extract that text and return it. Otherwise, return all of the text."""
-    import re
-    
-    # Look for markdown code blocks with ```markdown
-    markdown_pattern = r'```markdown\s*\n(.*?)\n```'
-    match = re.search(markdown_pattern, text, re.DOTALL)
-    
-    if match:
-        return match.group(1).strip()
-    
-    # Also check for ```md as an alternative
-    md_pattern = r'```md\s*\n(.*?)\n```'
-    match = re.search(md_pattern, text, re.DOTALL)
-    
-    if match:
-        return match.group(1).strip()
-    
-    # If no markdown code block found, return the original text
-    return text.strip()
-
-def insert_metadata(markdown:str,
-                    pmd:PaperMetadata) -> str:
-    """We want to put the paper metadata just after the summary's title.
-    """
-    found_title = False
-    result = []
-    for line in markdown.splitlines(keepends=True):
-        if (not found_title) and line.strip().startswith('# '):
-            result.append(line)
-            result.append("\n")
-            result.append(f"* Paper id: {pmd.paper_id}\n")
-            result.append(f"* Authors: {', '.join(pmd.authors)}\n")
-            result.append(f"* Categories: {', '.join(pmd.categories)}\n")
-            result.append(f"* Published: {pmd.published}\n")
-            if pmd.updated is not None:
-                result.append(f"* Updated: {pmd.updated}\n")
-            result.append(f"* Paper URL: {pmd.paper_abs_url}\n")
-            if pmd.abstract is not None:
-                result.append("\n## Abstract\n")
-                result.append(textwrap.fill(pmd.abstract) + '\n\n')
-            found_title = True
-        else:
-            result.append(line)
-    if found_title:
-        return ''.join(result)
-    else:
-        raise SummarizationError("Generated markdown did not contain a title")
-
-
-def summarize_paper(text:str, pmd:PaperMetadata) -> str:
-    print(f"Generating summary for text of {len(text)} characters...")
-
-    try:
-        llm = OpenAI(model='gpt-4.1')
-        # Make the LLM call to get the summary
-        response = llm.complete(summarization_prompt.replace('{{text_block}}', text))
-        markdown = insert_metadata(extract_markdown(response.text), pmd)
-        return markdown
-    except SummarizationError:
-        raise
-    except Exception as e:
-        raise SummarizationError(f"An error occurred during summarizing: {e}") from e
-
-
-def save_summary(markdown:str, paper_id:str) -> str:
-    """Save a markdown summary. Returns the path"""
-    FILE_LOCATIONS.ensure_summaries_dir()
-    file_path = join(FILE_LOCATIONS.summaries_dir, paper_id + '.md')
-    with open(file_path, 'w') as f:
-        f.write(markdown)
-    return file_path
+MODEL=os.environ.get('OPENAI_MODEL', 'gpt-5')
 
 class ImageExtractError(Exception):
     pass
 
+# --- Configuration ---
+# Configure the OpenAI client to use the API key from the environment
+try:
+    client = openai.OpenAI()
+except KeyError:
+    print("ERROR: OPENAI_API_KEY environment variable not set.")
+    print("Please create a .env file and add your key: OPENAI_API_KEY='your-key'")
+    client = None
+
+
+PROMPT=\
+"""You are extracting a figure from a PDF page image.
+
+Goal:
+Locate the Figure that best matches the following description:
+'{{description}}'
+
+Bounding box rules (highest priority):
+1. Must contain ONLY the graphical content of the figure.
+2. Must NOT contain:
+   - Caption text
+   - Body text
+   - Page headers/footers
+3. Legends, axis labels, or embedded text that are physically part of the figure are allowed.
+4. If unsure whether something belongs in the figure, EXCLUDE it.
+
+Detecting the caption boundary:
+- Look for a horizontal whitespace band, a visual divider line, or a change in font size that separates the figure from its caption.
+- If the figure touches the caption with no visible divider, crop *above* the caption text line.
+- Never extend the bounding box below the top of the caption, even if it means trimming part of the bottom of the figure.
+
+Process:
+Step 1: Identify the figure matching the description.
+Step 2: Find the lowest pixel row that contains graphical content before whitespace/divider/caption text starts.
+Step 3: Crop the bounding box at that point or higher.
+Step 4: Output the caption text separately.
+
+Output format:
+{
+  "region": { "x1": <fraction>, "y1": <fraction>, "x2": <fraction>, "y2": <fraction> },
+  "caption": "<exact caption text as it appears>"
+}
+
+✅ Correct Example (tight crop above caption):
+{
+  "region": { "x1": 0.16, "y1": 0.24, "x2": 0.49, "y2": 0.54 },
+  "caption": "Figure 2: Comparison of algorithm accuracy over datasets."
+}
+
+❌ Incorrect Example (includes caption):
+{
+  "region": { "x1": 0.16, "y1": 0.24, "x2": 0.49, "y2": 0.69 }
+}
+Reason: Bounding box includes both the figure and its caption text.
+
+If no matching figure is found, return: {}
+
+"""
+
+def find_and_extract_image(
+    pdf_filename: str,
+    page_number:int,
+    description: str,
+) -> Optional[tuple[str, str]]:
+    """
+    Finds the closest matching image in a local PDF based on a text description,
+    extracts it using AI-identified regions, and saves it.
+
+    Args:
+        pdf_path (str): The file path to the local PDF document.
+        description (str): The text description of the image to find.
+        output_dir (str): The directory where the extracted image will be saved.
+
+    Returns:
+        tuple[str,str], optional:
+            If the image is found, returns a pair of strings - the path to the generated image
+            and the caption. Otherwise returns None if no image was found.
+    """
+    if not client:
+        print("OpenAI client is not initialized. Cannot proceed.")
+        return None
+
+    pdf_path = join(FILE_LOCATIONS.pdfs_dir, pdf_filename)
+    if not os.path.exists(pdf_path):
+        print(f"Error: PDF file not found at '{pdf_path}'")
+        return None
+    output_dir = FILE_LOCATIONS.images_dir
+
+    try:
+        # 1. Convert PDF pages to base64 encoded images
+        print(f"Processing PDF '{os.path.basename(pdf_path)}'...")
+        base64_images = []
+        doc = fitz.open(pdf_path)
+        if page_number>len(doc):
+            raise Exception(f"Document has {len(doc)} pages, but page {page_number} was requested.")
+        #for page_num in range(len(doc)):
+        #    page = doc.load_page(page_num)
+        #    # Use a high-DPI pixmap for better quality analysis by the AI
+        #    pix = page.get_pixmap(dpi=150)
+        #    img_bytes = pix.tobytes("png")
+        #    base64_images.append(base64.b64encode(img_bytes).decode('utf-8'))
+        page = doc.load_page(page_number-1)
+        # Use a high-DPI pixmap for better quality analysis by the AI
+        pix = page.get_pixmap(dpi=150)
+        img_bytes = pix.tobytes("png")
+        base64_images.append(base64.b64encode(img_bytes).decode('utf-8'))
+        doc.close()
+        print(f"Successfully converted {len(base64_images)} pages to images.")
+
+        # 2. Construct the prompt for OpenAI
+        messages = [
+            {
+                "role": "system",
+                "content": "You are an expert document analysis AI for research papers. Your task is to find a specific image region corresponding to a figure in a research paper, "
+                "based on a user's description. Respond ONLY with a valid JSON object."
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": PROMPT.replace('{{description}}', description)
+                    },
+                    {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/png;base64,{base64_images[0]}"}
+                    }
+                ]
+            }
+        ]
+
+        # 3. Call the OpenAI API
+        print("Sending request to OpenAI to find the image region...")
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=messages,
+            response_format={"type": "json_object"},
+            #max_completion_tokens=500
+        )
+
+        response_content = response.choices[0].message.content
+        print(f"Received response from OpenAI: {response_content}")
+
+        # 4. Parse the response
+        try:
+            result = json.loads(response_content)
+        except json.JSONDecodeError:
+            print("Error: OpenAI returned a non-JSON response.")
+            print(repr(response))
+            return None
+
+        if not result or "region" not in result:
+            print("OpenAI could not find a matching image region in the document.")
+            return None
+
+        region = result["region"]
+        if 'caption' in result:
+            caption = result['caption']
+        else:
+            caption = ""
+
+        # 5. Extract the image region from the original PDF for maximum quality
+        print(f"Extracting region from page {page_number}...")
+        doc = fitz.open(pdf_path)
+
+        page = doc.load_page(page_number-1)
+        page_rect = page.rect # The page's dimensions in points
+
+        # Convert fractional coordinates to absolute PDF points
+        clip_rect = fitz.Rect(
+            page_rect.width * region['x1'],
+            page_rect.height * region['y1'],
+            page_rect.width * region['x2'],
+            page_rect.height * region['y2']
+        )
+
+        # Get a pixmap of just the clipped region
+        pix = page.get_pixmap(clip=clip_rect, dpi=300) # Use high DPI for output
+        doc.close()
+
+        # 6. Save the extracted image
+        FILE_LOCATIONS.ensure_images_dir()
+        image_basename=pdf_filename.replace('.pdf', '')
+        desc_for_filename = description[0:20].replace(' ', '_')
+        output_filename = f"{image_basename}_p{page_number}_{desc_for_filename}.png"
+        output_path = os.path.join(output_dir, output_filename)
+
+        # Use Pillow to save the image
+        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        img.save(output_path)
+
+        print(f"Successfully extracted and saved image to '{output_path}'")
+        return output_path, caption
+
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        return None
+
+
+# This version will do the work using pil and local heuristics
 def extract_images_from_pdf(pdf_filename: str, description: str, limit:int=3) -> Optional[list[str]]:
     """
     Extracts composite images from a specified PDF file that match a given textual description.
