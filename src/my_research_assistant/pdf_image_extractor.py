@@ -11,21 +11,11 @@ from PIL import Image
 from typing import Optional, Dict, Any
 
 from .file_locations import FILE_LOCATIONS
+from .models import DEFAULT_MODEL_NAME
 
-
-MODEL=os.environ.get('OPENAI_MODEL', 'gpt-5')
 
 class ImageExtractError(Exception):
     pass
-
-# --- Configuration ---
-# Configure the OpenAI client to use the API key from the environment
-try:
-    client = openai.OpenAI()
-except KeyError:
-    print("ERROR: OPENAI_API_KEY environment variable not set.")
-    print("Please create a .env file and add your key: OPENAI_API_KEY='your-key'")
-    client = None
 
 
 PROMPT=\
@@ -96,9 +86,12 @@ def find_and_extract_image(
             If the image is found, returns a pair of strings - the path to the generated image
             and the caption. Otherwise returns None if no image was found.
     """
-    if not client:
-        print("OpenAI client is not initialized. Cannot proceed.")
-        return None
+    try:
+        client = openai.OpenAI() # TODO: cache the client in a global
+    except KeyError:
+        print("ERROR: OPENAI_API_KEY environment variable not set.")
+        print("Please create a .env file and add your key: OPENAI_API_KEY='your-key'")
+
 
     pdf_path = join(FILE_LOCATIONS.pdfs_dir, pdf_filename)
     if not os.path.exists(pdf_path):
@@ -152,7 +145,7 @@ def find_and_extract_image(
         # 3. Call the OpenAI API
         print("Sending request to OpenAI to find the image region...")
         response = client.chat.completions.create(
-            model=MODEL,
+            model=DEFAULT_MODEL_NAME,
             messages=messages,
             response_format={"type": "json_object"},
             #max_completion_tokens=500
@@ -440,7 +433,7 @@ def extract_images_from_pdf(pdf_filename: str, description: str, limit:int=3) ->
                 Respond with only 'yes' or 'no'.
                 """
                 
-                llm = OpenAI(model="gpt-3.5-turbo", temperature=0)
+                llm = OpenAI(model=DEFAULT_MODEL_NAME, temperature=0)
                 response = llm.complete(prompt)
                 print(f"    LLM response: {response.text.strip()}")
                 

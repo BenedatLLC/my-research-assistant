@@ -214,8 +214,147 @@ def download_paper_legacy(arxiv_id: str) -> PaperMetadata:
     download_paper(paper_metadata)
     
     return paper_metadata
-    
 
+def _arxiv_keyword_search(query:str, max_results:int) -> list[PaperMetadata]:
+    """Find all matching papers up to the limit using the arxiv Search APIs.
+    """
+    client = arxiv.Client()
+    search = arxiv.Search(query=query, max_results=max_results)
+    metadata_results = []
+    mappings = get_category_mappings()
+    for result in client.results(search):
+        paper_id = result.get_short_id()
+        if result.pdf_url is None:
+            raise Exception(f"No pdf url found for paper {paper_id}")
+        primary: str = map_category(result.primary_category, mappings)
+        other_categories: list[str] = [map_category(c, mappings) for c in result.categories
+                                      if c != result.primary_category]
+        all_categories = [primary] + other_categories
+    
+        metadata_results.append(PaperMetadata(
+            paper_id=paper_id,
+            title=result.title,
+            published=result.published,
+            updated=result.updated,
+            paper_abs_url=result.entry_id,
+            paper_pdf_url=result.pdf_url,
+            authors=[a.name for a in result.authors],
+            abstract=result.summary,
+            categories=all_categories,
+            doi=result.doi,
+            journal_ref=result.journal_ref,
+            default_pdf_filename=result._get_default_filename(),
+        ))
+    return metadata_results
+
+
+def search_arxiv_papers(query:str, k:int=1, candidate_limit:int=50) -> list[PaperMetadata]:
+    """Use _arxiv_keyword_search() to find up to candidate_limit papers matching the query.
+    Then, rerank by computing embeddings for each of the search results and compare to the embedding of the original query
+    string, using the LlamaIndex APIs. Return the paper metadata for the k closest matches.
+
+    Parameters
+    ----------
+    query: str
+        Search text for finding papers. This can match to the title, paper id, abstract, authors, etc.
+    k: int
+        Maximum number of matches to return after reranking. Defaults to 1.
+    candidate_limit: int
+        Maximum number of candiate papers to return from the initial keyword search on Arxiv..
+    
+    Returns
+    -------
+    list[PaperMetadata]
+        Metadata for the k closest matches.
+    """
+    candidates = _arxiv_keyword_search(query, max_results=candidate_limit)
+    
+    # If we have fewer candidates than requested, just return all of them
+    if len(candidates) <= k:
+        return candidates
+    
+    try:
+        # Try to use LlamaIndex embeddings for semantic similarity
+        from llama_index.core.embeddings import BaseEmbedding
+        from llama_index.core.settings import Settings
+        import numpy as np
+        
+        # Get the default embedding model from LlamaIndex settings
+        embed_model = Settings.embed_model
+        
+        # Create embeddings for the query
+        query_embedding = embed_model.get_text_embedding(query)
+        
+        # Create embeddings for each candidate paper
+        # We'll embed the combination of title and abstract for better semantic matching
+        candidate_embeddings = []
+        for candidate in candidates:
+            # Combine title and abstract for richer semantic representation
+            text_to_embed = f"{candidate.title}"
+            if candidate.abstract:
+                text_to_embed += f" {candidate.abstract}"
+            
+            paper_embedding = embed_model.get_text_embedding(text_to_embed)
+            candidate_embeddings.append(paper_embedding)
+        
+        # Compute cosine similarities between query and candidate embeddings
+        similarities = []
+        query_embedding_np = np.array(query_embedding)
+        
+        for paper_embedding in candidate_embeddings:
+            paper_embedding_np = np.array(paper_embedding)
+            
+            # Compute cosine similarity
+            dot_product = np.dot(query_embedding_np, paper_embedding_np)
+            norm_query = np.linalg.norm(query_embedding_np)
+            norm_paper = np.linalg.norm(paper_embedding_np)
+            cosine_similarity = dot_product / (norm_query * norm_paper)
+            similarities.append(cosine_similarity)
+        
+        # Sort candidates by similarity (highest first) and return top k
+        similarity_indices = np.argsort(similarities)[::-1]  # Sort in descending order
+        top_k_indices = similarity_indices[:k]
+        
+        # Return the top k candidates based on similarity scores
+        reranked_candidates = [candidates[i] for i in top_k_indices]
+        return reranked_candidates
+        
+    except Exception as e:
+        # Fallback to simple text-based similarity if embeddings fail
+        # (e.g., when OpenAI API key is not available)
+        logging.warning(f"Embedding-based reranking failed ({e}), falling back to text-based similarity")
+        
+        # Simple text-based similarity using title and abstract keywords
+        def text_similarity(text1: str, text2: str) -> float:
+            """Compute simple text similarity based on shared words."""
+            words1 = set(text1.lower().split())
+            words2 = set(text2.lower().split())
+            if not words1 or not words2:
+                return 0.0
+            intersection = words1.intersection(words2)
+            union = words1.union(words2)
+            return len(intersection) / len(union)  # Jaccard similarity
+        
+        # Compute text similarity scores
+        similarities = []
+        query_lower = query.lower()
+        
+        for candidate in candidates:
+            # Combine title and abstract for comparison
+            candidate_text = f"{candidate.title}"
+            if candidate.abstract:
+                candidate_text += f" {candidate.abstract}"
+            
+            similarity = text_similarity(query_lower, candidate_text.lower())
+            similarities.append(similarity)
+        
+        # Sort candidates by similarity (highest first) and return top k
+        similarity_indices = sorted(range(len(similarities)), key=lambda i: similarities[i], reverse=True)
+        top_k_indices = similarity_indices[:k]
+        
+        # Return the top k candidates based on similarity scores
+        reranked_candidates = [candidates[i] for i in top_k_indices]
+        return reranked_candidates
     
 
 

@@ -2,4 +2,4 @@
 export PATH="`pwd`/.venv/bin:$PATH"
 export DOC_HOME=`pwd`/docs
 export OPENAI_API_KEY=CHANGEME
-export OPENAI_MODEL="gpt-5"
+export DEFAULT_MODEL="gpt-4o"

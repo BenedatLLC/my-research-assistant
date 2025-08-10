@@ -2,15 +2,18 @@
 
 import textwrap
 from os.path import join
-from typing import Optional
+from typing import Optional, Dict, Any
 import io
 import numpy as np
 from llama_index.llms.openai import OpenAI
-import fitz  # PyMuPDF
-from PIL import Image
+import asyncio
+from llama_index.core.agent.workflow import FunctionAgent
+from llama_index.core.memory import ChatMemoryBuffer
+from llama_index.llms.openai import OpenAI
 
 from .types import PaperMetadata
 from .file_locations import FILE_LOCATIONS
+from .models import DEFAULT_MODEL_NAME
 
 # Define the prompt for summarization
 # This prompt guides the LLM to produce the desired structured output in Markdown.
@@ -89,13 +92,55 @@ def insert_metadata(markdown:str,
         raise SummarizationError("Generated markdown did not contain a title")
 
 
-def summarize_paper(text:str, pmd:PaperMetadata) -> str:
+def summarize_paper(text: str, pmd: PaperMetadata, feedback: Optional[str] = None, previous_summary: Optional[str] = None) -> str:
+    """
+    Summarize a paper, optionally taking user feedback to improve an existing summary.
+    
+    Args:
+        text: The full text of the paper to summarize
+        pmd: Paper metadata
+        feedback: Optional user feedback for improving the summary
+        previous_summary: Optional previous summary to improve upon
+    
+    Returns:
+        The markdown summary
+    """
     print(f"Generating summary for text of {len(text)} characters...")
+    
+    # Build the prompt based on whether we have feedback
+    if feedback and previous_summary:
+        # We're improving an existing summary
+        improved_prompt = f"""
+Please improve the following paper summary based on the user's feedback.
+
+**User Feedback:** {feedback}
+
+**Previous Summary:**
+{previous_summary}
+
+**Original Paper Text:**
+{{text_block}}
+
+Please provide an improved markdown summary that addresses the user's feedback while maintaining the following structure:
+
+1.  **Key ideas of the paper**: Briefly describe the main contributions and core concepts.
+2.  **Implementation approach**: Explain how the proposed method is built and works.
+3.  **Experiments**: Detail the experimental setup, datasets used, and key results.
+4.  **Related work**: Discuss how this work relates to and differs from previous research.
+
+The title of the markdown summary should be the title of the paper using a markdown level 1 header ("#").
+
+Improved Markdown Summary:
+"""
+        prompt = improved_prompt
+    else:
+        # Use the original summarization prompt
+        prompt = summarization_prompt
 
     try:
-        llm = OpenAI(model='gpt-4.1')
+        llm = OpenAI(model=DEFAULT_MODEL_NAME)
         # Make the LLM call to get the summary
-        response = llm.complete(summarization_prompt.replace('{{text_block}}', text))
+        response = llm.complete(prompt.replace('{{text_block}}', text))
         markdown = insert_metadata(extract_markdown(response.text), pmd)
         return markdown
     except SummarizationError:
@@ -104,273 +149,173 @@ def summarize_paper(text:str, pmd:PaperMetadata) -> str:
         raise SummarizationError(f"An error occurred during summarizing: {e}") from e
 
 
-def save_summary(markdown:str, paper_id:str) -> str:
-    """Save a markdown summary. Returns the path"""
+def save_summary(markdown: str, paper_id: str) -> str:
+    """
+    Save a markdown summary to the filesystem.
+    
+    Parameters
+    ----------
+    markdown : str
+        The markdown content to save. Should be a properly formatted markdown
+        document containing the paper summary.
+    paper_id : str
+        The unique identifier for the paper. This will be used as the filename
+        (with .md extension) for the saved summary.
+    
+    Returns
+    -------
+    str
+        The absolute file path where the summary was saved.
+        
+    Notes
+    -----
+    This function automatically ensures that the summaries directory exists
+    before attempting to save the file. The file will be saved as 
+    "{paper_id}.md" in the configured summaries directory.
+    
+    Examples
+    --------
+    >>> summary_text = "# Paper Title\\n\\nThis is a summary..."
+    >>> path = save_summary(summary_text, "2023.12345")
+    >>> print(path)
+    '/path/to/summaries/2023.12345.md'
+    """
     FILE_LOCATIONS.ensure_summaries_dir()
     file_path = join(FILE_LOCATIONS.summaries_dir, paper_id + '.md')
     with open(file_path, 'w') as f:
         f.write(markdown)
     return file_path
 
-class ImageExtractError(Exception):
-    pass
+SUMMARIZER_AGENT_PROMPT=\
+"""You are an expert Computer Science researcher who can find, index, and
+summarize papers from arxiv.org. You are designed to have multiple interactions
+with the user to refine and improve your work until they are satisfied.
 
-def extract_images_from_pdf(pdf_filename: str, description: str, limit:int=3) -> Optional[list[str]]:
-    """
-    Extracts composite images from a specified PDF file that match a given textual description.
+Using the provided tools, do the following:
+
+1. Find the paper most closely matching the criteria provided by the user,
+   using the `search_arxiv_papers` tool.
+2. Ask the user if the paper matches the one they want. If not, ask them to
+   provide more details and show them the 5 most closely matching papers. Then
+   ask them to pick among these papers.
+3. When a paper has been selected, download the paper using `download_paper`.
+   This will save the paper to the local filesystem in pdf format. Let the user
+   know where the paper was saved to.
+4. Now, index the paper using `index_file`. Save the returned paper text for the
+   next step.
+5. Next, use the text of the paper and call `summarize_paper` to get a summary of the
+   paper. When you are done, pass that summary to the user (in markdown format).
+6. Ask the user if they want any changes to the summary. If so, use the paper text,
+   the original summary, and the requested changes to improve the summary by calling
+   `summarize_paper` again with modified instructions.
+7. Show the improved summary to the user and ask if they want further improvements. If so,
+   repeat steps 6 and 7 until they are happy with the summary.
+8. Save the final summary using the `save_summary` tool and let the user know where the
+   summary was saved.
+
+Remember to maintain conversation state and always ask the user for confirmation or
+feedback before proceeding to the next step. Be conversational and helpful throughout
+the process.
+"""
+
+class InteractiveSummarizerAgent:
+    """A wrapper class that provides an interactive summarizer agent with conversation state."""
     
-    This function renders each page and analyzes visual content to extract meaningful 
-    composite images (like figures made of multiple elements) rather than just 
-    individual embedded image objects.
-
-    Args:
-        pdf_filename (str): The filename of the PDF document.
-        description (str): A clear, descriptive text of the image to find (e.g., "a cat sitting on a mat," "the company logo").
-
-    Returns:
-        list[str], optional: A list of the images that were extracted and saved, based on the description.
-    """
-    pdf_path = join(FILE_LOCATIONS.pdfs_dir, pdf_filename)
-    print(f"\nTool activated: Attempting to extract composite images matching '{description}' from '{pdf_path}'...")
+    def __init__(self):
+        from .arxiv_downloader import search_arxiv_papers, download_paper
+        from .vector_store import index_file
+        
+        # Create the FunctionAgent with better conversational capabilities
+        self.agent = FunctionAgent(
+            tools=[search_arxiv_papers, download_paper, index_file, summarize_paper, save_summary],
+            llm=OpenAI(model=DEFAULT_MODEL_NAME),
+            system_prompt=SUMMARIZER_AGENT_PROMPT,
+        )
+        
+        # Track conversation state
+        self.conversation_state = {
+            'current_paper': None,
+            'paper_text': None,
+            'current_summary': None,
+            'step': 'search'
+        }
+        
+        # Store conversation history
+        self.conversation_history = []
     
-    def find_image_regions(page_pixmap, min_area=50000):
-        """Find regions on the page that likely contain meaningful visual content"""
-        import numpy as np
-        from PIL import Image, ImageOps
+    def run(self, message: str) -> str:
+        """Send a message to the agent and get a response."""
+        import asyncio
         
-        # Convert pixmap to PIL Image
-        img_data = page_pixmap.tobytes("ppm")
-        pil_image = Image.open(io.BytesIO(img_data))
+        # Add to conversation history
+        self.conversation_history.append({"role": "user", "content": message})
         
-        # Convert to grayscale for analysis
-        gray = pil_image.convert('L')
+        # The FunctionAgent.run() method expects to be run in an async context
+        # Let's create a proper async runner
+        async def async_runner():
+            return await self.agent.run(message)
         
-        # Convert to numpy array for processing
-        img_array = np.array(gray)
+        # Check if we're already in an event loop
+        try:
+            loop = asyncio.get_running_loop()
+            # If we're in a loop, we need to run in a thread with a new loop
+            import concurrent.futures
+            import threading
+            
+            def run_in_new_thread():
+                # Create a new event loop for this thread
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                try:
+                    return new_loop.run_until_complete(async_runner())
+                finally:
+                    new_loop.close()
+                    asyncio.set_event_loop(None)
+            
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(run_in_new_thread)
+                response = future.result()
+        except RuntimeError:
+            # No event loop running, we can create one
+            response = asyncio.run(async_runner())
         
-        # Find regions with significant content by looking for areas with variation
-        # Use a simple approach: look for rectangular regions that aren't mostly white/empty
-        regions = []
+        # Add response to conversation history
+        self.conversation_history.append({"role": "assistant", "content": str(response)})
         
-        height, width = img_array.shape
-        
-        # Divide the page into a grid and analyze each cell
-        grid_size = 50  # Size of each grid cell
-        
-        for y in range(0, height - grid_size, grid_size // 2):
-            for x in range(0, width - grid_size, grid_size // 2):
-                # Extract a region
-                region = img_array[y:y+grid_size, x:x+grid_size]
-                
-                # Check if this region has interesting content
-                std_dev = np.std(region)
-                mean_brightness = np.mean(region)
-                
-                # Look for regions with good variation (not too uniform) and not too bright (not just white space)
-                if std_dev > 20 and mean_brightness < 240:
-                    # Expand this region to find the full extent of the visual content
-                    expanded_region = expand_region(img_array, x, y, grid_size, grid_size)
-                    if expanded_region and (expanded_region[2] - expanded_region[0]) * (expanded_region[3] - expanded_region[1]) >= min_area:
-                        regions.append(expanded_region)
-        
-        # Merge overlapping regions
-        merged_regions = merge_overlapping_regions(regions)
-        
-        return merged_regions, pil_image
+        return str(response)
     
-    def expand_region(img_array, start_x, start_y, initial_w, initial_h):
-        """Expand a region to include all connected visual content"""
-        height, width = img_array.shape
+    async def arun(self, message: str) -> str:
+        """Async version of run method."""
+        # Add to conversation history
+        self.conversation_history.append({"role": "user", "content": message})
         
-        # Find the bounds of non-white content around this point
-        min_x, max_x = start_x, min(start_x + initial_w, width)
-        min_y, max_y = start_y, min(start_y + initial_h, height)
+        # Run the agent with the message asynchronously
+        response = await self.agent.run(message)
         
-        # Expand outward to find the full extent
-        # Look left
-        for x in range(start_x, -1, -1):
-            col = img_array[min_y:max_y, x]
-            if np.mean(col) > 230 and np.std(col) < 10:  # Mostly white/empty
-                break
-            min_x = x
+        # Add response to conversation history
+        self.conversation_history.append({"role": "assistant", "content": str(response)})
         
-        # Look right  
-        for x in range(start_x + initial_w, width):
-            col = img_array[min_y:max_y, x]
-            if np.mean(col) > 230 and np.std(col) < 10:  # Mostly white/empty
-                break
-            max_x = x
-            
-        # Look up
-        for y in range(start_y, -1, -1):
-            row = img_array[y, min_x:max_x]
-            if np.mean(row) > 230 and np.std(row) < 10:  # Mostly white/empty
-                break
-            min_y = y
-            
-        # Look down
-        for y in range(start_y + initial_h, height):
-            row = img_array[y, min_x:max_x]
-            if np.mean(row) > 230 and np.std(row) < 10:  # Mostly white/empty
-                break
-            max_y = y
-        
-        # Add some padding
-        padding = 10
-        min_x = max(0, min_x - padding)
-        min_y = max(0, min_y - padding)
-        max_x = min(width, max_x + padding)
-        max_y = min(height, max_y + padding)
-        
-        return (min_x, min_y, max_x, max_y)
+        return str(response)
     
-    def merge_overlapping_regions(regions):
-        """Merge regions that overlap significantly"""
-        if not regions:
-            return []
-            
-        # Sort regions by area (largest first)
-        regions = sorted(regions, key=lambda r: (r[2]-r[0])*(r[3]-r[1]), reverse=True)
-        
-        merged = []
-        for region in regions:
-            x1, y1, x2, y2 = region
-            
-            # Check if this region overlaps significantly with any existing merged region
-            overlapped = False
-            for i, existing in enumerate(merged):
-                ex1, ey1, ex2, ey2 = existing
-                
-                # Calculate overlap
-                overlap_x = max(0, min(x2, ex2) - max(x1, ex1))
-                overlap_y = max(0, min(y2, ey2) - max(y1, ey1))
-                overlap_area = overlap_x * overlap_y
-                
-                region_area = (x2 - x1) * (y2 - y1)
-                existing_area = (ex2 - ex1) * (ey2 - ey1)
-                
-                # If overlap is significant, merge the regions
-                if overlap_area > 0.3 * min(region_area, existing_area):
-                    # Merge by taking the bounding box of both regions
-                    merged[i] = (min(x1, ex1), min(y1, ey1), max(x2, ex2), max(y2, ey2))
-                    overlapped = True
-                    break
-            
-            if not overlapped:
-                merged.append(region)
-        
-        return merged
+    def reset(self):
+        """Reset the conversation state and history."""
+        self.conversation_state = {
+            'current_paper': None,
+            'paper_text': None,
+            'current_summary': None,
+            'step': 'search'
+        }
+        self.conversation_history = []
     
-    def is_meaningful_region(pil_image, region, min_dimension=100):
-        """Check if a region contains meaningful visual content"""
-        x1, y1, x2, y2 = region
-        width = x2 - x1
-        height = y2 - y1
-        
-        # Must be reasonably sized
-        if width < min_dimension or height < min_dimension:
-            return False
-            
-        # Extract the region
-        region_image = pil_image.crop((x1, y1, x2, y2))
-        
-        # Convert to grayscale for analysis
-        gray_region = region_image.convert('L')
-        
-        # Check if it has meaningful content (not just white space)
-        import numpy as np
-        region_array = np.array(gray_region)
-        
-        # Calculate statistics
-        std_dev = np.std(region_array)
-        mean_brightness = np.mean(region_array)
-        
-        # Good content should have variation and not be too bright
-        return std_dev > 15 and mean_brightness < 230
+    def get_conversation_history(self):
+        """Get the conversation history."""
+        return self.conversation_history.copy()
+    
+    def get_state(self):
+        """Get the current conversation state."""
+        return self.conversation_state.copy()
 
-    try:
-        doc = fitz.open(pdf_path)
-        image_files = []
-        
-        # Iterate through each page of the PDF
-        for page_num in range(len(doc)):
-            page = doc.load_page(page_num)
-            
-            print(f"Analyzing page {page_num + 1} for composite images...")
-            
-            # Render the page at high resolution
-            matrix = fitz.Matrix(2.0, 2.0)  # 2x zoom for better quality
-            pixmap = page.get_pixmap(matrix=matrix)  # type: ignore
-            
-            # Get all text on the page for LLM context
-            page_text = page.get_text()  # type: ignore
-            
-            # Find visual regions on the page
-            try:
-                regions, full_page_image = find_image_regions(pixmap)
-                print(f"Found {len(regions)} potential image regions on page {page_num + 1}")
-            except Exception as e:
-                print(f"Error analyzing page {page_num + 1}: {e}")
-                continue
-            
-            # Process each region
-            for region_idx, region in enumerate(regions):
-                if not is_meaningful_region(full_page_image, region):
-                    continue
-                    
-                print(f"  Analyzing region {region_idx + 1}: {region}")
-                
-                # Extract the region as an image
-                x1, y1, x2, y2 = region
-                region_image = full_page_image.crop((x1, y1, x2, y2))
-                
-                # Use LLM to determine if this region matches the description
-                prompt = f"""
-                You are an assistant that determines if an image region is relevant based on surrounding text.
-                The user wants to find an image of: '{description}'.
-                The text on the page where this visual region was found is:
-                ---
-                {page_text}
-                ---
-                This appears to be a visual region (possibly a figure, chart, or diagram) from the page.
-                Based on the page text and the request, is it likely that this visual region contains what the user is looking for?
-                Respond with only 'yes' or 'no'.
-                """
-                
-                llm = OpenAI(model="gpt-3.5-turbo", temperature=0)
-                response = llm.complete(prompt)
-                print(f"    LLM response: {response.text.strip()}")
-                
-                # Check the LLM's decision
-                if response.text.strip().lower() == 'yes':
-                    print(f"    LLM confirmed region on page {page_num + 1} matches description.")
-                    
-                    # Save the region as an image
-                    image_filename = f"extracted_page{page_num+1}_region{region_idx+1}.png"
-                    image_filepath = join(FILE_LOCATIONS.images_dir, image_filename)
-                    
-                    FILE_LOCATIONS.ensure_images_dir()
-                    region_image.save(image_filepath, "PNG", optimize=True)
-                    print(f"    Saved composite image to '{image_filepath}'")
-                    image_files.append(image_filename)
-                    
-                    if len(image_files) >= limit:
-                        break
-                        
-            if len(image_files) >= limit:
-                print(f"Reached limit of {limit} image files, stopping early.")
-                break
 
-        doc.close()
-
-        if len(image_files) > 0:
-            print(f"Successfully extracted {len(image_files)} composite image(s) matching '{description}' and saved them in the '{FILE_LOCATIONS.images_dir}' directory.")
-            return image_files
-        else:
-            print(f"Could not find any composite images matching the description '{description}' in the document.")
-            return None
-
-    except FileNotFoundError as e:
-        raise ImageExtractError(f"Error: The file at '{pdf_path}' was not found.") from e
-    except Exception as e:
-        raise ImageExtractError(f"An unexpected error occurred: {e}") from e
+def make_summarizer_agent():
+    """Create an interactive summarizer agent that supports multiple user interactions."""
+    return InteractiveSummarizerAgent()
