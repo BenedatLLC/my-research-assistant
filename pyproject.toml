@@ -16,10 +16,12 @@ dependencies = [
     "pydantic>=2.11.7",
     "pymupdf>=1.26.3",
     "reportlab>=4.4.3",
+    "rich>=14.1.0",
 ]
 
 [project.scripts]
 my-research-assistant = "my_research_assistant:main"
+chat = "my_research_assistant.chat:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -28,4 +30,5 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
     "pytest>=8.4.1",
+    "pytest-asyncio>=1.1.0",
 ]
