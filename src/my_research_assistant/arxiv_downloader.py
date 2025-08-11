@@ -1,11 +1,12 @@
 """Download papers from arxiv"""
-from os.path import join, exists
+from os.path import join, exists, basename
+import os
 import datetime
 import logging
 from typing import Optional
 from pydantic import BaseModel
 import arxiv
-from .file_locations import FILE_LOCATIONS
+from .file_locations import FILE_LOCATIONS, FileLocations
 from .types import PaperMetadata
 
 CATEGORY_DATA=\
@@ -135,7 +136,6 @@ def get_paper_metadata(arxiv_id: str) -> PaperMetadata:
         categories=all_categories,
         doi=result.doi,
         journal_ref=result.journal_ref,
-        default_pdf_filename=result._get_default_filename(),
     )
 
 
@@ -167,12 +167,11 @@ def download_paper(paper_metadata: PaperMetadata, file_locations=None) -> str:
     search_by_id = arxiv.Search(id_list=[paper_metadata.paper_id])
     result = next(client.results(search_by_id))
     
-    pdf_filename = paper_metadata.default_pdf_filename
-    local_pdf_path = join(file_locations.pdfs_dir, pdf_filename)
+    local_pdf_path = paper_metadata.get_local_pdf_path(file_locations)
     
     if not exists(local_pdf_path):
         file_locations.ensure_pdfs_dir()
-        result.download_pdf(dirpath=file_locations.pdfs_dir, filename=pdf_filename)
+        result.download_pdf(dirpath=file_locations.pdfs_dir, filename=basename(local_pdf_path))
         assert exists(local_pdf_path)
         logging.info(f"Downloaded '{paper_metadata.title}' to {local_pdf_path}")
     else:
@@ -180,40 +179,6 @@ def download_paper(paper_metadata: PaperMetadata, file_locations=None) -> str:
     
     return local_pdf_path
 
-
-def download_paper_legacy(arxiv_id: str) -> PaperMetadata:
-    """Download paper from arXiv and save PDF to local filesystem (legacy function).
-    
-    This function maintains backward compatibility by combining metadata retrieval
-    and PDF download in a single call. For new code, prefer using get_paper_metadata()
-    and download_paper() separately.
-    
-    Retrieve the paper metadata with the specified arXiv ID, download and save 
-    the PDF to the local filesystem if it hasn't been downloaded already, and 
-    return an instance of PaperMetadata containing all paper information.
-    
-    Parameters
-    ----------
-    arxiv_id : str
-        The arXiv paper identifier (e.g., '2503.22738v1' or '2503.22738')
-        
-    Returns
-    -------
-    PaperMetadata
-        Paper metadata containing all paper information
-            
-    Raises
-    ------
-    Exception
-        If no PDF URL is found for the specified paper ID
-    """
-    # Get the metadata first
-    paper_metadata = get_paper_metadata(arxiv_id)
-    
-    # Download the PDF
-    download_paper(paper_metadata)
-    
-    return paper_metadata
 
 def _arxiv_keyword_search(query:str, max_results:int) -> list[PaperMetadata]:
     """Find all matching papers up to the limit using the arxiv Search APIs.
@@ -243,7 +208,6 @@ def _arxiv_keyword_search(query:str, max_results:int) -> list[PaperMetadata]:
             categories=all_categories,
             doi=result.doi,
             journal_ref=result.journal_ref,
-            default_pdf_filename=result._get_default_filename(),
         ))
     return metadata_results
 
@@ -356,6 +320,11 @@ def search_arxiv_papers(query:str, k:int=1, candidate_limit:int=50) -> list[Pape
         reranked_candidates = [candidates[i] for i in top_k_indices]
         return reranked_candidates
     
+def get_downloaded_paper_ids(file_locations:FileLocations=FILE_LOCATIONS) -> list[str]:
+    """Return the list of paper ids for papers whose pdfs have been downloaded"""
+    return [filename[:-len('.pdf')]
+            for filename in os.listdir(file_locations.pdfs_dir)
+            if filename.endswith('.pdf')]
 
 
 

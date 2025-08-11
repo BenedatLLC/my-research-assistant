@@ -65,7 +65,7 @@ The system is built around a pipeline architecture with these core components:
 2. **Download** (`arxiv_downloader.py`) - PDF download and local storage management
 3. **Indexing** (`vector_store.py`) - LlamaIndex-based vector storage for semantic search
 4. **Summarization** (`summarizer.py`) - LLM-powered paper summarization
-5. **Workflow Orchestration** (`workflow_add_paper.py`) - LlamaIndex workflow for end-to-end paper processing
+5. **Workflow Orchestration** (`workflow.py`) - LlamaIndex workflow for research assistant operations
 
 ### Key Components
 

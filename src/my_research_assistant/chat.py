@@ -20,7 +20,7 @@ from rich.table import Table
 from rich.columns import Columns
 from rich.layout import Layout
 
-from .workflow_add_paper import WorkflowRunner, AddPaperWorkflow
+from .workflow import WorkflowRunner, ResearchAssistantWorkflow
 from .models import get_default_model
 from .file_locations import FILE_LOCATIONS
 from .types import PaperMetadata
@@ -70,11 +70,13 @@ Welcome to your interactive research assistant! I can help you:
 * **Search** for papers on ArXiv
 * **Download** papers to your local library
 * **Index** papers for semantic search
+* **Search** your indexed papers semantically
 * **Summarize** papers with AI-powered analysis
 * **Refine** summaries based on your feedback
 
 ## Commands:
-* `search <query>` - Search for papers
+* `search <query>` - Search for papers on ArXiv
+* `sem-search <query>` - Search your indexed papers semantically
 * `help` - Show this help message  
 * `status` - Show current status
 * `history` - Show conversation history
@@ -82,7 +84,8 @@ Welcome to your interactive research assistant! I can help you:
 * `quit` or `exit` - Exit the chat
 
 ## Getting Started:
-Try: `search machine learning transformers`
+* Search ArXiv: `search machine learning transformers`
+* Search indexed papers: `sem-search agent safety`
         """
         
         self.console.print(Panel(
@@ -103,6 +106,11 @@ Try: `search machine learning transformers`
             "search <query>", 
             "Search for papers on ArXiv", 
             "search neural networks"
+        )
+        help_table.add_row(
+            "sem-search <query>", 
+            "Search your indexed papers semantically", 
+            "sem-search agent safety"
         )
         help_table.add_row(
             "select <number>", 
@@ -398,6 +406,35 @@ You can now search for another paper or type 'quit' to exit.
         except Exception as e:
             self.console.print(f"❌ [red]Save failed: {str(e)}[/red]")
     
+    async def process_semantic_search_command(self, query: str):
+        """Process a semantic search command."""
+        self.current_state = "semantic_searching"
+        
+        try:
+            with self.console.status(f"[bold green]Searching indexed papers for: '{query}'..."):
+                result = await self.workflow_runner.start_semantic_search_workflow(query)
+            
+            if result and not result.startswith("❌"):
+                self.console.print("✅ [green]Semantic search completed![/green]\n")
+                
+                # Render the result as markdown
+                self.render_markdown_response(result)
+                
+                # Add to history
+                self.add_to_history("assistant", result)
+                
+            else:
+                # Handle error case
+                error_msg = result if result else "Unknown error occurred"
+                self.console.print(f"❌ [red]{error_msg}[/red]")
+            
+            # Reset state
+            self.current_state = "ready"
+            
+        except Exception as e:
+            self.console.print(f"❌ [red]Semantic search failed: {str(e)}[/red]")
+            self.current_state = "ready"
+    
     async def run_chat_loop(self):
         """Main chat loop."""
         self.show_welcome()
@@ -462,6 +499,18 @@ You can now search for another paper or type 'quit' to exit.
                 
                 elif user_input.lower() == 'save':
                     await self.process_save_command()
+                
+                elif user_input.lower().startswith('semantic-search ') or user_input.lower().startswith('sem-search '):
+                    # Handle both semantic-search and sem-search commands
+                    if user_input.lower().startswith('semantic-search '):
+                        query = user_input[16:].strip()  # "semantic-search " is 16 chars
+                    else:
+                        query = user_input[11:].strip()  # "sem-search " is 11 chars
+                    
+                    if query:
+                        await self.process_semantic_search_command(query)
+                    else:
+                        self.console.print("❌ [red]Please provide a search query[/red]")
                 
                 else:
                     self.console.print("❓ [yellow]Unknown command. Type 'help' for available commands.[/yellow]")

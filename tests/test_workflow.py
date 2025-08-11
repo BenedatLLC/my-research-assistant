@@ -1,4 +1,4 @@
-"""Test the AddPaperWorkflow functionality."""
+"""Test the ResearchAssistantWorkflow functionality."""
 
 import pytest
 import asyncio
@@ -10,8 +10,8 @@ from typing import List
 # Configure pytest-asyncio
 pytest_plugins = ('pytest_asyncio',)
 
-from my_research_assistant.workflow_add_paper import (
-    AddPaperWorkflow, 
+from my_research_assistant.workflow import (
+    ResearchAssistantWorkflow, 
     WorkflowRunner,
     SearchResultsEvent,
     PaperSelectedEvent,
@@ -19,7 +19,9 @@ from my_research_assistant.workflow_add_paper import (
     PaperIndexedEvent,
     SummaryGeneratedEvent,
     SummaryImproveEvent,
-    SummarySavedEvent
+    SummarySavedEvent,
+    SemanticSearchEvent,
+    SemanticSearchResultsEvent
 )
 from my_research_assistant.types import PaperMetadata
 from my_research_assistant.file_locations import FileLocations
@@ -79,7 +81,7 @@ def sample_paper_metadata():
 @pytest.fixture
 def workflow(mock_llm, temp_file_locations):
     """Create a workflow instance for testing."""
-    return AddPaperWorkflow(llm=mock_llm, file_locations=temp_file_locations)
+    return ResearchAssistantWorkflow(llm=mock_llm, file_locations=temp_file_locations)
 
 
 class TestWorkflowEvents:
@@ -372,7 +374,7 @@ class TestWorkflowRunner:
         runner = WorkflowRunner(llm=mock_llm, file_locations=temp_file_locations)
         
         assert runner.workflow is not None
-        assert isinstance(runner.workflow, AddPaperWorkflow)
+        assert isinstance(runner.workflow, ResearchAssistantWorkflow)
         assert runner.current_state is None
     
     def test_start_workflow_basic(self, mock_llm, temp_file_locations, sample_paper_metadata):
@@ -390,7 +392,7 @@ class TestWorkflowIntegration:
     
     def test_workflow_initialization(self, mock_llm, temp_file_locations):
         """Test that workflow can be properly initialized."""
-        workflow = AddPaperWorkflow(llm=mock_llm, file_locations=temp_file_locations)
+        workflow = ResearchAssistantWorkflow(llm=mock_llm, file_locations=temp_file_locations)
         
         assert workflow.llm == mock_llm
         assert workflow.file_locations == temp_file_locations
@@ -429,7 +431,7 @@ class TestWorkflowEndToEnd:
         from my_research_assistant.models import get_default_model
         
         llm = get_default_model()
-        workflow = AddPaperWorkflow(llm=llm, file_locations=temp_file_locations)
+        workflow = ResearchAssistantWorkflow(llm=llm, file_locations=temp_file_locations)
         
         # This would test the complete flow but is disabled for CI
         # runner = WorkflowRunner(llm=llm, file_locations=temp_file_locations)
