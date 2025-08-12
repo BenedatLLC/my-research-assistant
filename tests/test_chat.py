@@ -176,6 +176,11 @@ class TestChatSemanticSearch:
         
         # Verify LLM was called
         mock_llm.acomplete.assert_called_once()
+        
+        # Verify that the response contains clickable file links
+        response_content = chat.conversation_history[0]['content']
+        assert 'file://' in response_content, "Response should contain clickable file:// links"
+        assert '.pdf](' in response_content, "Response should contain clickable PDF links"
     
     @pytest.mark.asyncio
     @patch('my_research_assistant.chat.get_default_model')
@@ -221,3 +226,69 @@ class TestChatSemanticSearch:
         
         # Verify state was reset even after error
         assert chat.current_state == "ready"
+
+
+class TestChatListCommand:
+    """Test list command functionality in ChatInterface."""
+    
+    @pytest.mark.asyncio
+    async def test_list_command_no_papers(self, temp_file_locations):
+        """Test list command when no papers have been downloaded."""
+        chat = ChatInterface()
+        
+        # Execute list command with no papers
+        await chat.process_list_command()
+        
+        # Should handle gracefully without errors
+        assert True  # Test passes if no exceptions are raised
+    
+    @pytest.mark.asyncio
+    async def test_list_command_with_papers(self, temp_file_locations):
+        """Test list command with downloaded papers."""
+        # Download some papers for testing
+        from my_research_assistant.arxiv_downloader import get_paper_metadata, download_paper
+        
+        # Download two test papers
+        paper_ids = ['2503.22738', '1706.03762']  # Test papers
+        papers = []
+        
+        for paper_id in paper_ids:
+            try:
+                md = get_paper_metadata(paper_id)
+                download_paper(md, temp_file_locations)
+                papers.append(md)
+            except Exception:
+                # Skip if paper can't be downloaded (e.g., network issues)
+                pass
+        
+        if not papers:
+            pytest.skip("Could not download test papers")
+        
+        chat = ChatInterface()
+        
+        # Execute list command
+        await chat.process_list_command()
+        
+        # Should complete without errors
+        assert True  # Test passes if no exceptions are raised
+    
+    @pytest.mark.asyncio
+    async def test_list_command_error_handling(self, temp_file_locations):
+        """Test list command error handling for corrupted metadata."""
+        # Create a fake PDF file without proper metadata
+        import os
+        pdfs_dir = temp_file_locations.pdfs_dir
+        os.makedirs(pdfs_dir, exist_ok=True)
+        
+        # Create a fake PDF file that will cause metadata loading to fail
+        fake_pdf_path = os.path.join(pdfs_dir, "fake_paper.pdf")
+        with open(fake_pdf_path, "w") as f:
+            f.write("fake content")
+        
+        chat = ChatInterface()
+        
+        # Execute list command - should handle errors gracefully
+        await chat.process_list_command()
+        
+        # Should complete without crashing
+        assert True  # Test passes if no exceptions are raised

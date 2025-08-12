@@ -482,9 +482,14 @@ Please provide a well-structured summary that addresses the query and highlights
             for paper_id, paper_data in papers_dict.items():
                 final_response += f"### {paper_data['title']}\n"
                 final_response += f"- **Paper ID**: {paper_id}\n"
-                final_response += f"- **PDF File**: `{self.workflow.file_locations.pdfs_dir}/{paper_data['pdf_filename']}`\n"
+                
+                # Create plain text file paths
+                pdf_path = f"{self.workflow.file_locations.pdfs_dir}/{paper_data['pdf_filename']}"
+                final_response += f"- **PDF File**: {pdf_path}\n"
+                
                 if paper_data['summary_filename']:
-                    final_response += f"- **Summary File**: `{self.workflow.file_locations.summaries_dir}/{paper_data['summary_filename']}`\n"
+                    summary_path = f"{self.workflow.file_locations.summaries_dir}/{paper_data['summary_filename']}"
+                    final_response += f"- **Summary File**: {summary_path}\n"
                 else:
                     final_response += f"- **Summary File**: Not available\n"
                 

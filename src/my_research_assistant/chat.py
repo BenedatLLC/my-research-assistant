@@ -67,16 +67,18 @@ class ChatInterface:
 
 Welcome to your interactive research assistant! I can help you:
 
-* **Search** for papers on ArXiv
+* **Find** papers on ArXiv to download
 * **Download** papers to your local library
 * **Index** papers for semantic search
 * **Search** your indexed papers semantically
+* **List** all downloaded papers
 * **Summarize** papers with AI-powered analysis
 * **Refine** summaries based on your feedback
 
 ## Commands:
-* `search <query>` - Search for papers on ArXiv
+* `find <query>` - Find papers on ArXiv to download
 * `sem-search <query>` - Search your indexed papers semantically
+* `list` - Show all downloaded papers (with pagination)
 * `help` - Show this help message  
 * `status` - Show current status
 * `history` - Show conversation history
@@ -84,7 +86,7 @@ Welcome to your interactive research assistant! I can help you:
 * `quit` or `exit` - Exit the chat
 
 ## Getting Started:
-* Search ArXiv: `search machine learning transformers`
+* Find ArXiv papers: `find machine learning transformers`
 * Search indexed papers: `sem-search agent safety`
         """
         
@@ -103,14 +105,19 @@ Welcome to your interactive research assistant! I can help you:
         help_table.add_column("Example", style="green")
         
         help_table.add_row(
-            "search <query>", 
-            "Search for papers on ArXiv", 
-            "search neural networks"
+            "find <query>", 
+            "Find papers on ArXiv to download", 
+            "find neural networks"
         )
         help_table.add_row(
             "sem-search <query>", 
             "Search your indexed papers semantically", 
             "sem-search agent safety"
+        )
+        help_table.add_row(
+            "list", 
+            "Show all downloaded papers with pagination", 
+            "list"
         )
         help_table.add_row(
             "select <number>", 
@@ -333,7 +340,7 @@ Welcome to your interactive research assistant! I can help you:
             self.console.print("\n[yellow]💡 You can now:[/yellow]")
             self.console.print("• Type 'improve <feedback>' to refine the summary")
             self.console.print("• Type 'save' to save the summary")
-            self.console.print("• Type 'search <new query>' to start over")
+            self.console.print("• Type 'find <new query>' to start over")
             
         except Exception as e:
             self.console.print(f"❌ [red]Workflow failed: {str(e)}[/red]")
@@ -393,7 +400,7 @@ Welcome to your interactive research assistant! I can help you:
 
 **Summary Location:** {file_path}
 
-You can now search for another paper or type 'quit' to exit.
+You can now find another paper or type 'quit' to exit.
                 """,
                 title="✅ Success",
                 border_style="green"
@@ -435,6 +442,118 @@ You can now search for another paper or type 'quit' to exit.
             self.console.print(f"❌ [red]Semantic search failed: {str(e)}[/red]")
             self.current_state = "ready"
     
+    async def process_list_command(self):
+        """Process a list command to show all downloaded papers."""
+        from .arxiv_downloader import get_downloaded_paper_ids, get_paper_metadata
+        import math
+        
+        try:
+            self.console.print("📋 [bold blue]Listing downloaded papers...[/bold blue]\n")
+            
+            # Get list of downloaded paper IDs
+            paper_ids = get_downloaded_paper_ids(FILE_LOCATIONS)
+            
+            if not paper_ids:
+                self.console.print("📭 [yellow]No papers have been downloaded yet.[/yellow]")
+                self.console.print("💡 [dim]Use 'find <query>' to find and download papers.[/dim]")
+                return
+            
+            # Get paper metadata for each ID and sort by title
+            papers_with_metadata = []
+            failed_papers = []
+            
+            with self.console.status(f"[bold green]Loading metadata for {len(paper_ids)} papers..."):
+                for paper_id in paper_ids:
+                    try:
+                        metadata = get_paper_metadata(paper_id)
+                        papers_with_metadata.append(metadata)
+                    except Exception as e:
+                        failed_papers.append((paper_id, str(e)))
+            
+            # Sort papers alphabetically by title
+            papers_with_metadata.sort(key=lambda p: p.title.lower())
+            
+            # Display papers with pagination
+            papers_per_page = 10  # Show 10 papers per page
+            total_papers = len(papers_with_metadata)
+            total_pages = math.ceil(total_papers / papers_per_page) if total_papers > 0 else 1
+            
+            current_page = 1
+            
+            while True:
+                # Calculate start and end indices for current page
+                start_idx = (current_page - 1) * papers_per_page
+                end_idx = min(start_idx + papers_per_page, total_papers)
+                current_papers = papers_with_metadata[start_idx:end_idx]
+                
+                # Create table for current page
+                table = Table(title=f"Downloaded Papers (Page {current_page}/{total_pages})")
+                table.add_column("Index", style="cyan", no_wrap=True, width=6)
+                table.add_column("Paper ID", style="yellow", no_wrap=True, width=12)
+                table.add_column("Title", style="white", width=60)
+                table.add_column("Authors", style="green", width=30)
+                table.add_column("Published", style="blue", no_wrap=True, width=10)
+                
+                # Add papers to table
+                for i, paper in enumerate(current_papers, start=start_idx + 1):
+                    # Truncate long titles and author lists for display
+                    title = paper.title if len(paper.title) <= 57 else paper.title[:54] + "..."
+                    authors = ", ".join(paper.authors[:2])
+                    if len(paper.authors) > 2:
+                        authors += f" +{len(paper.authors) - 2} more"
+                    if len(authors) > 27:
+                        authors = authors[:24] + "..."
+                    
+                    published_date = paper.published.strftime('%Y-%m-%d')
+                    
+                    table.add_row(
+                        str(i),
+                        paper.paper_id,
+                        title,
+                        authors,
+                        published_date
+                    )
+                
+                # Display the table
+                self.console.print(table)
+                
+                # Show pagination info and controls
+                if total_pages > 1:
+                    pagination_text = f"\n📄 Page {current_page} of {total_pages} • Total: {total_papers} papers"
+                    if failed_papers:
+                        pagination_text += f" • {len(failed_papers)} failed to load"
+                    
+                    self.console.print(pagination_text)
+                    
+                    if current_page < total_pages:
+                        self.console.print("[dim]Press Enter for next page, or type any other key to exit[/dim]")
+                        from rich.prompt import Prompt
+                        user_input = Prompt.ask("", console=self.console, default="")
+                        if user_input != "":
+                            break
+                        current_page += 1
+                    else:
+                        self.console.print("[dim]End of list[/dim]")
+                        break
+                else:
+                    # Single page, just show total
+                    total_text = f"\n📊 Total: {total_papers} paper{'s' if total_papers != 1 else ''}"
+                    if failed_papers:
+                        total_text += f" • {len(failed_papers)} failed to load"
+                    self.console.print(total_text)
+                    break
+            
+            # Show any failed papers
+            if failed_papers:
+                self.console.print(f"\n⚠️ [yellow]Failed to load metadata for {len(failed_papers)} paper(s):[/yellow]")
+                for paper_id, error in failed_papers[:3]:  # Show first 3 failures
+                    self.console.print(f"  • {paper_id}: {error}")
+                if len(failed_papers) > 3:
+                    self.console.print(f"  • ... and {len(failed_papers) - 3} more")
+            
+        except Exception as e:
+            self.console.print(f"❌ [red]List command failed: {str(e)}[/red]")
+    
     async def run_chat_loop(self):
         """Main chat loop."""
         self.show_welcome()
@@ -442,7 +561,7 @@ You can now search for another paper or type 'quit' to exit.
         if not self.initialize():
             return
         
-        self.console.print("\n🎯 [bold green]Ready! Type 'help' for commands or start with 'search <your query>'[/bold green]\n")
+        self.console.print("\n🎯 [bold green]Ready! Type 'help' for commands or start with 'find <your query>'[/bold green]\n")
         
         while True:
             try:
@@ -476,8 +595,8 @@ You can now search for another paper or type 'quit' to exit.
                 elif user_input.lower() == 'clear':
                     self.clear_history()
                 
-                elif user_input.lower().startswith('search '):
-                    query = user_input[7:].strip()
+                elif user_input.lower().startswith('find '):
+                    query = user_input[5:].strip()
                     if query:
                         await self.process_search_command(query)
                     else:
@@ -511,6 +630,9 @@ You can now search for another paper or type 'quit' to exit.
                         await self.process_semantic_search_command(query)
                     else:
                         self.console.print("❌ [red]Please provide a search query[/red]")
+                
+                elif user_input.lower() == 'list':
+                    await self.process_list_command()
                 
                 else:
                     self.console.print("❓ [yellow]Unknown command. Type 'help' for available commands.[/yellow]")
