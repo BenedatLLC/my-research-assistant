@@ -35,3 +35,8 @@ These are the high level operations for the agent.
 6. [ ] Implement deep research (use case 4)
 7. [ ] Add any commands needed to finish use case 5 (maintenance)
 8. [ ] Add intent detection in front of the commands, so that user can just provide natural text queries
+
+## Specific tasks
+
+### Workflow refactor
+

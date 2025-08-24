@@ -1,35 +1,48 @@
-"""This is a LlamaIndex workflow for the Research Assistant.
+"""UI-agnostic workflow system for the Research Assistant.
 
-The workflow supports multiple operations:
+This module implements a LlamaIndex-based workflow architecture that separates 
+business logic from UI presentation. The system supports multiple interface types 
+(terminal, web, API) through the InterfaceAdapter pattern.
 
-1. ADD PAPER WORKFLOW:
-   - Find and add new papers to the research collection
-   - Download, index, summarize, and refine summaries
+## Architecture Overview
 
-2. SEMANTIC SEARCH WORKFLOW:
-   - Search the indexed paper collection using semantic search
-   - Summarize results with references and links to local files
+The workflow system is built on three main components:
 
-The overall add paper flow:
-1. Find the paper most closely matching the criteria provided by the user,
-   using the `search_arxiv_papers` tool.
-2. Ask the user if the paper matches the one they want. If not, ask them to
-   provide more details and show them the 5 most closely matching papers. Then
-   ask them to pick among these papers.
-3. When a paper has been selected, download the paper using `download_paper`.
-   This will save the paper to the local filesystem in pdf format. Let the user
-   know where the paper was saved to.
-4. Now, index the paper using `index_file`. Save the returned paper text for the
-   next step.
-5. Next, use the text of the paper and call `summarize_paper` to get a summary of the
-   paper. When you are done, pass that summary to the user (in markdown format).
-6. Ask the user if they want any changes to the summary. If so, use the paper text,
-   the original summary, and the requested changes to improve the summary by calling
-   `summarize_paper` again with modified instructions.
-7. Show the improved summary to the user and ask if they want further improvements. If so,
-   repeat steps 6 and 7 until they are happy with the summary.
-8. Save the final summary using the `save_summary` tool and let the user know where the
-   summary was saved.
+1. **ResearchAssistantWorkflow**: Core LlamaIndex workflow containing business logic
+2. **WorkflowRunner**: High-level interface for executing workflows with user interaction
+3. **InterfaceAdapter**: Abstract interface for UI-agnostic user interaction
+
+## Supported Workflows
+
+### ADD PAPER WORKFLOW:
+- Search ArXiv for papers matching user criteria
+- User selection of preferred paper from results
+- Download paper to local filesystem  
+- Index paper content for semantic search
+- Generate AI-powered summary
+- Allow iterative summary refinement
+- Save final summary to filesystem
+
+### SEMANTIC SEARCH WORKFLOW:
+- Search indexed paper collection using semantic similarity
+- Aggregate and summarize relevant content chunks
+- Provide references with page numbers and file paths
+- Display search statistics and metadata
+
+## Interface Compatibility
+
+The workflow system is designed to work with multiple interface types:
+
+- **Terminal**: Rich console interface with progress indicators and formatting
+- **Web**: Future HTTP/WebSocket interface for web applications
+- **API**: Future RESTful API for programmatic access
+
+## Key Design Principles
+
+- **Separation of Concerns**: UI logic separated from business logic
+- **Extensibility**: Easy to add new interface types or workflow steps
+- **Testability**: Business logic can be tested independently of UI
+- **Consistency**: Same behavior across all interface types
 """
 
 from pydantic import Field
@@ -50,6 +63,7 @@ from .arxiv_downloader import search_arxiv_papers, download_paper
 from .vector_store import index_file, search_index
 from .summarizer import summarize_paper, save_summary
 from .project_types import PaperMetadata, SearchResult
+from .interface_adapter import InterfaceAdapter
 
 
 # Define custom events for the workflow
@@ -111,18 +125,34 @@ class SummarySavedEvent(Event):
 
 class ResearchAssistantWorkflow(Workflow):
     """
-    LlamaIndex Workflow for research assistant operations.
+    Core LlamaIndex workflow for research assistant operations.
     
-    Supports:
-    - Adding new papers (search ArXiv, download, index, summarize)
-    - Semantic search of existing indexed papers
+    This class implements the business logic for paper management and search
+    operations using the LlamaIndex workflow framework. It handles:
+    
+    - ArXiv paper search and selection
+    - PDF download and local storage
+    - Content indexing for semantic search
+    - AI-powered summarization with iterative refinement
+    - Semantic search across indexed papers with result aggregation
+    
+    The workflow is UI-agnostic and communicates through an InterfaceAdapter
+    to support multiple interface types (terminal, web, API).
+    
+    Attributes:
+        llm: Language model instance for summarization tasks
+        interface: UI adapter for user interaction and feedback
+        file_locations: Configuration for file storage locations
+        tools: Registered function tools for workflow operations
     """
     llm: LLM = Field(description="The LLM instance to use for summarization.")
     file_locations: FileLocations = Field(description="Locations for storing pdfs, summaries, and the document index.")
+    interface: InterfaceAdapter = Field(description="Interface adapter for UI-agnostic operations.")
 
-    def __init__(self, llm: LLM, file_locations:FileLocations=FILE_LOCATIONS, **kwargs):
+    def __init__(self, llm: LLM, interface: InterfaceAdapter, file_locations:FileLocations=FILE_LOCATIONS, **kwargs):
         super().__init__(**kwargs)
         self.llm = llm
+        self.interface = interface
         self.file_locations = file_locations
         # Register tools with the workflow
         self.tools = {
@@ -144,101 +174,99 @@ class ResearchAssistantWorkflow(Workflow):
         
         if workflow_type == 'semantic_search':
             return SemanticSearchEvent(query=query)
-        else:
-            # Default to add paper workflow
+        elif workflow_type == 'add_paper':
             return await self.search_papers_impl(ctx, query)
+        else:
+            return StopEvent(result=f"❌ Unknown workflow type: {workflow_type}")
     
     # === ADD PAPER WORKFLOW ===
     
     async def search_papers_impl(self, ctx: Context, query: str) -> SearchResultsEvent | StopEvent:
         """Implementation of paper search"""
-        ctx.write_event_to_stream(
-            StopEvent(result=f"🔍 Searching for papers matching: '{query}'...")
-        )
-        
         try:
-            # Search for papers (default k=5 for initial search to show options)
-            papers = search_arxiv_papers(query, k=5)
+            ctx.write_event_to_stream(
+                StopEvent(result=f"🔍 Searching for papers matching: '{query}'...")
+            )
+            
+            with self.interface.progress_context(f"🔍 Searching for papers matching: '{query}'..."):
+                # Search for papers (default k=5 for initial search to show options)
+                try:
+                    papers = search_arxiv_papers(query, k=5)
+                except Exception as e:
+                    # Immediately handle search API exceptions
+                    self.interface.show_error(f"Search failed: {str(e)}")
+                    return StopEvent(result=f"Search failed: {str(e)}")
             
             if not papers:
-                return StopEvent(result=f"❌ No papers found matching '{query}'. Please try a different search term.")
+                self.interface.show_error(f"No papers found matching '{query}'. Please try a different search term.")
+                return StopEvent(result="No papers found")
             
-            # Present results to user
-            result_text = f"📄 Found {len(papers)} paper(s):\n\n"
-            for i, paper in enumerate(papers, 1):
-                result_text += f"{i}. **{paper.title}**\n"
-                result_text += f"   - Authors: {', '.join(paper.authors[:3])}{'...' if len(paper.authors) > 3 else ''}\n"
-                result_text += f"   - Categories: {', '.join(paper.categories[:2])}{'...' if len(paper.categories) > 2 else ''}\n"
-                result_text += f"   - Published: {paper.published.strftime('%Y-%m-%d')}\n"
-                result_text += f"   - Paper ID: {paper.paper_id}\n\n"
+            # Display papers using the interface adapter
+            self.interface.display_papers(papers)
             
-            if len(papers) == 1:
-                result_text += "This is the best match. Would you like to proceed with this paper? (Reply 'yes' to continue or provide more specific search terms)"
-            else:
-                result_text += "Please select a paper by number (1-5) or provide more specific search terms if none match what you're looking for."
+            ctx.write_event_to_stream(
+                SearchResultsEvent(papers=papers, query=query)
+            )
             
-            ctx.write_event_to_stream(StopEvent(result=result_text))
             return SearchResultsEvent(papers=papers, query=query)
         except Exception as e:
-            return StopEvent(result=f"❌ Search failed: {str(e)}")
+            self.interface.show_error(f"Search failed: {str(e)}")
+            return StopEvent(result=f"Search failed: {str(e)}")
     
     
     @step
     async def handle_paper_selection(self, ctx: Context, ev: SearchResultsEvent) -> PaperSelectedEvent | StopEvent:
         """Step 2: Handle user paper selection or refined search"""
-        # This step would typically wait for user input in an interactive setting
-        # For now, we'll assume the first paper is selected
-        # In a real implementation, this would need to handle user input
-        
         try:
             if not ev.papers:
-                return StopEvent(result="❌ No papers available to select")
+                self.interface.show_error("No papers available to select")
+                return StopEvent(result="No papers available to select")
             
-            selected_paper = ev.papers[0]  # Default to first paper
-            
-            ctx.write_event_to_stream(
-                StopEvent(result=f"✅ Selected paper: '{selected_paper.title}' by {', '.join(selected_paper.authors[:2])}{'...' if len(selected_paper.authors) > 2 else ''}")
-            )
-            
-            return PaperSelectedEvent(paper=selected_paper)
+            # In interactive mode, this would get user input
+            # For now, auto-select first paper for single results
+            if len(ev.papers) == 1:
+                selected_paper = ev.papers[0]
+                self.interface.show_success(
+                    f"Selected paper: '{selected_paper.title}' by {', '.join(selected_paper.authors[:2])}{'...' if len(selected_paper.authors) > 2 else ''}"
+                )
+                return PaperSelectedEvent(paper=selected_paper)
+            else:
+                # Multiple papers - wait for selection (handled by interface layer)
+                return StopEvent(result="Multiple papers found - awaiting selection")
+                
         except Exception as e:
-            return StopEvent(result=f"❌ Paper selection failed: {str(e)}")
+            self.interface.show_error(f"Paper selection failed: {str(e)}")
+            return StopEvent(result=f"Paper selection failed: {str(e)}")
     
     @step
     async def download_paper_step(self, ctx: Context, ev: PaperSelectedEvent) -> PaperDownloadedEvent | StopEvent:
         """Step 3: Download the selected paper"""
         paper = ev.paper
         
-        ctx.write_event_to_stream(
-            StopEvent(result=f"📥 Downloading paper: '{paper.title}'...")
-        )
-        
         try:
-            local_path = download_paper(paper, self.file_locations)
-            ctx.write_event_to_stream(
-                StopEvent(result=f"✅ Paper downloaded successfully to: {local_path}")
-            )
+            with self.interface.progress_context(f"📥 Downloading paper: '{paper.title}'..."):
+                local_path = download_paper(paper, self.file_locations)
+            
+            self.interface.show_success(f"Paper downloaded successfully to: {local_path}")
             return PaperDownloadedEvent(paper=paper, local_path=local_path)
         except Exception as e:
-            return StopEvent(result=f"❌ Download failed: {str(e)}")
+            self.interface.show_error(f"Download failed: {str(e)}")
+            return StopEvent(result=f"Download failed: {str(e)}")
     
     @step
     async def index_paper_step(self, ctx: Context, ev: PaperDownloadedEvent) -> PaperIndexedEvent | StopEvent:
         """Step 4: Index the downloaded paper"""
         paper = ev.paper
         
-        ctx.write_event_to_stream(
-            StopEvent(result=f"🔍 Indexing paper: '{paper.title}'...")
-        )
-        
         try:
-            paper_text = index_file(paper)
-            ctx.write_event_to_stream(
-                StopEvent(result=f"✅ Paper indexed successfully. Extracted {len(paper_text)} characters of text.")
-            )
+            with self.interface.progress_context(f"🔍 Indexing paper: '{paper.title}'..."):
+                paper_text = index_file(paper)
+            
+            self.interface.show_success(f"Paper indexed successfully. Extracted {len(paper_text)} characters of text.")
             return PaperIndexedEvent(paper=paper, paper_text=paper_text)
         except Exception as e:
-            return StopEvent(result=f"❌ Indexing failed: {str(e)}")
+            self.interface.show_error(f"Indexing failed: {str(e)}")
+            return StopEvent(result=f"Indexing failed: {str(e)}")
     
     @step
     async def generate_summary_step(self, ctx: Context, ev: PaperIndexedEvent) -> SummaryGeneratedEvent | StopEvent:
@@ -246,18 +274,18 @@ class ResearchAssistantWorkflow(Workflow):
         paper = ev.paper
         paper_text = ev.paper_text
         
-        ctx.write_event_to_stream(
-            StopEvent(result=f"📝 Generating summary for: '{paper.title}'...")
-        )
-        
         try:
-            summary = summarize_paper(paper_text, paper)
-            ctx.write_event_to_stream(
-                StopEvent(result=f"✅ Summary generated successfully!\n\n{summary}\n\n---\nWould you like any changes to this summary? If so, please provide your feedback.")
-            )
+            with self.interface.progress_context(f"📝 Generating summary for: '{paper.title}'..."):
+                summary = summarize_paper(paper_text, paper)
+            
+            self.interface.show_success("Summary generated successfully!")
+            self.interface.render_content(summary, "markdown", "📝 Summary")
+            self.interface.show_info("Would you like any changes to this summary? If so, please provide your feedback.")
+            
             return SummaryGeneratedEvent(paper=paper, summary=summary, paper_text=paper_text)
         except Exception as e:
-            return StopEvent(result=f"❌ Summary generation failed: {str(e)}")
+            self.interface.show_error(f"Summary generation failed: {str(e)}")
+            return StopEvent(result=f"Summary generation failed: {str(e)}")
     
     @step
     async def improve_summary_step(self, ctx: Context, ev: SummaryImproveEvent) -> SummaryGeneratedEvent | StopEvent:
@@ -267,18 +295,18 @@ class ResearchAssistantWorkflow(Workflow):
         paper_text = ev.paper_text
         feedback = ev.feedback
         
-        ctx.write_event_to_stream(
-            StopEvent(result=f"🔄 Improving summary based on feedback: '{feedback}'...")
-        )
-        
         try:
-            improved_summary = summarize_paper(paper_text, paper, feedback=feedback, previous_summary=current_summary)
-            ctx.write_event_to_stream(
-                StopEvent(result=f"✅ Summary improved!\n\n{improved_summary}\n\n---\nWould you like any further changes? If not, reply 'save' to save the summary.")
-            )
+            with self.interface.progress_context(f"🔄 Improving summary based on feedback: '{feedback}'..."):
+                improved_summary = summarize_paper(paper_text, paper, feedback=feedback, previous_summary=current_summary)
+            
+            self.interface.show_success("Summary improved!")
+            self.interface.render_content(improved_summary, "markdown", "📝 Improved Summary")
+            self.interface.show_info("Would you like any further changes? If not, reply 'save' to save the summary.")
+            
             return SummaryGeneratedEvent(paper=paper, summary=improved_summary, paper_text=paper_text)
         except Exception as e:
-            return StopEvent(result=f"❌ Summary improvement failed: {str(e)}")
+            self.interface.show_error(f"Summary improvement failed: {str(e)}")
+            return StopEvent(result=f"Summary improvement failed: {str(e)}")
     
     @step
     async def save_summary_step(self, ctx: Context, ev: SummaryGeneratedEvent) -> StopEvent:
@@ -286,17 +314,28 @@ class ResearchAssistantWorkflow(Workflow):
         paper = ev.paper
         summary = ev.summary
         
-        ctx.write_event_to_stream(
-            StopEvent(result=f"💾 Saving summary for: '{paper.title}'...")
-        )
-        
         try:
-            file_path = save_summary(summary, paper.paper_id)
-            result_message = f"✅ Summary saved successfully!\n\n**File location**: {file_path}\n\n**Process completed successfully!**\n\nThe paper '{paper.title}' has been:\n- Downloaded\n- Indexed for search\n- Summarized\n- Saved to your summaries directory"
+            with self.interface.progress_context(f"💾 Saving summary for: '{paper.title}'..."):
+                file_path = save_summary(summary, paper.paper_id)
             
-            return StopEvent(result=result_message)
+            completion_message = f"""🎉 **Process Complete!**
+
+**Paper:** {paper.title}
+**Actions Completed:**
+  • Downloaded PDF
+  • Indexed for search
+  • Generated summary
+  • Saved to filesystem
+
+**Summary Location:** {file_path}
+
+You can now find another paper or start a new search."""
+            
+            self.interface.render_content(completion_message, "markdown", "✅ Success")
+            return StopEvent(result=f"Summary saved successfully: {file_path}")
         except Exception as e:
-            return StopEvent(result=f"❌ Summary save failed: {str(e)}")
+            self.interface.show_error(f"Summary save failed: {str(e)}")
+            return StopEvent(result=f"Summary save failed: {str(e)}")
 
     # === SEMANTIC SEARCH WORKFLOW ===
     
@@ -305,24 +344,21 @@ class ResearchAssistantWorkflow(Workflow):
         """Perform semantic search on the indexed paper collection"""
         query = ev.query
         
-        ctx.write_event_to_stream(
-            StopEvent(result=f"🔍 Searching local paper index for: '{query}'...")
-        )
-        
         try:
-            # Search the local index
-            results = search_index(query, k=10, file_locations=self.file_locations)
+            with self.interface.progress_context(f"🔍 Searching local paper index for: '{query}'..."):
+                # Search the local index
+                results = search_index(query, k=10, file_locations=self.file_locations)
             
             if not results:
-                return StopEvent(result=f"❌ No results found in local index for '{query}'. Try adding more papers or using different search terms.")
+                self.interface.show_error(f"No results found in local index for '{query}'. Try adding more papers or using different search terms.")
+                return StopEvent(result=f"No results found for '{query}'")
             
-            ctx.write_event_to_stream(
-                StopEvent(result=f"✅ Found {len(results)} relevant chunks from {len(set(r.paper_id for r in results))} paper(s)")
-            )
+            self.interface.show_success(f"Found {len(results)} relevant chunks from {len(set(r.paper_id for r in results))} paper(s)")
             
             return SemanticSearchResultsEvent(results=results, query=query)
         except Exception as e:
-            return StopEvent(result=f"❌ Semantic search failed: {str(e)}")
+            self.interface.show_error(f"Semantic search failed: {str(e)}")
+            return StopEvent(result=f"Semantic search failed: {str(e)}")
     
     @step
     async def summarize_search_results(self, ctx: Context, ev: SemanticSearchResultsEvent) -> StopEvent:
@@ -405,10 +441,33 @@ Please provide a well-structured summary that addresses the query and highlights
 
 
 class WorkflowRunner:
-    """Helper class to run the ResearchAssistantWorkflow with user interaction"""
+    """
+    High-level interface for executing research workflows with user interaction.
     
-    def __init__(self, llm: LLM, file_locations: FileLocations = FILE_LOCATIONS):
-        self.workflow = ResearchAssistantWorkflow(llm=llm, file_locations=file_locations)
+    This class provides a simplified API for running complex research workflows
+    while handling the intricacies of the LlamaIndex workflow system. It serves
+    as the primary entry point for UI layers and abstracts away workflow
+    event handling and state management.
+    
+    Key responsibilities:
+    - Execute complete paper processing workflows (search → download → index → summarize)
+    - Handle semantic search operations with result aggregation
+    - Manage workflow state and user interaction flows
+    - Provide methods for summary refinement and saving
+    - Bridge between UI layer and core workflow logic
+    
+    This class works with any InterfaceAdapter implementation, making it suitable
+    for terminal applications, web interfaces, or programmatic API access.
+    
+    Attributes:
+        workflow: Core ResearchAssistantWorkflow instance
+        interface: UI adapter for user interaction
+        current_state: Current workflow state for interaction tracking
+    """
+    
+    def __init__(self, llm: LLM, interface: InterfaceAdapter, file_locations: FileLocations = FILE_LOCATIONS):
+        self.workflow = ResearchAssistantWorkflow(llm=llm, interface=interface, file_locations=file_locations)
+        self.interface = interface
         self.current_state = None
     
     async def start_add_paper_workflow(self, query: str):

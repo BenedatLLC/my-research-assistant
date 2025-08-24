@@ -24,13 +24,21 @@ from .workflow import WorkflowRunner, ResearchAssistantWorkflow
 from .models import get_default_model
 from .file_locations import FILE_LOCATIONS
 from .project_types import PaperMetadata
+from .interface_adapter import TerminalAdapter
 
 
 class ChatInterface:
-    """Interactive chat interface for the research assistant."""
+    """Interactive chat interface for the research assistant.
+    
+    This class provides a Rich terminal-based interface that integrates with
+    the workflow system through the TerminalAdapter. It handles user commands,
+    displays formatted output, and manages conversation state while delegating
+    business logic to the workflow layer.
+    """
     
     def __init__(self):
         self.console = Console()
+        self.interface_adapter = TerminalAdapter(self.console)
         self.llm = None
         self.workflow_runner = None
         self.conversation_history = []
@@ -46,8 +54,8 @@ class ChatInterface:
             with self.console.status("[bold green]Loading language model..."):
                 self.llm = get_default_model()
             
-            # Initialize workflow runner
-            self.workflow_runner = WorkflowRunner(llm=self.llm, file_locations=FILE_LOCATIONS)
+            # Initialize workflow runner with terminal adapter
+            self.workflow_runner = WorkflowRunner(llm=self.llm, interface=self.interface_adapter, file_locations=FILE_LOCATIONS)
             
             self.console.print("✅ [bold green]Initialization complete![/bold green]")
             return True
@@ -209,237 +217,125 @@ Welcome to your interactive research assistant! I can help you:
         })
     
     def display_papers(self, papers: List[PaperMetadata]):
-        """Display paper search results in a formatted table."""
-        if not papers:
-            self.console.print("❌ [red]No papers found[/red]")
-            return
-        
-        table = Table(title=f"📄 Found {len(papers)} Paper(s)")
-        table.add_column("#", style="cyan", width=3)
-        table.add_column("Title", style="white", max_width=50)
-        table.add_column("Authors", style="yellow", max_width=30)
-        table.add_column("Published", style="green", width=12)
-        table.add_column("Categories", style="blue", max_width=25)
-        
-        for i, paper in enumerate(papers, 1):
-            # Truncate long titles and author lists
-            title = paper.title[:47] + "..." if len(paper.title) > 50 else paper.title
-            authors = ", ".join(paper.authors[:2])
-            if len(paper.authors) > 2:
-                authors += f" + {len(paper.authors) - 2} more"
-            
-            categories = ", ".join(paper.categories[:2])
-            if len(paper.categories) > 2:
-                categories += "..."
-                
-            table.add_row(
-                str(i),
-                title,
-                authors,
-                paper.published.strftime('%Y-%m-%d'),
-                categories
-            )
-        
-        self.console.print(table)
+        """Display paper search results using the interface adapter."""
+        self.interface_adapter.display_papers(papers)
         self.current_papers = papers
-        
-        if len(papers) == 1:
-            self.console.print("\n[yellow]This is the best match. Type 'select 1' to proceed or search again.[/yellow]")
-        else:
-            self.console.print(f"\n[yellow]Type 'select <number>' (1-{len(papers)}) to choose a paper.[/yellow]")
     
     def render_markdown_response(self, content: str):
-        """Render markdown content with rich formatting."""
-        if content.strip().startswith('#') or '**' in content or '*' in content:
-            # Looks like markdown, render it
-            self.console.print(Panel(
-                Markdown(content),
-                title="📝 Response",
-                border_style="green"
-            ))
-        else:
-            # Plain text response
-            self.console.print(Panel(
-                content,
-                title="💬 Response",
-                border_style="green"
-            ))
+        """Render markdown content using the interface adapter."""
+        self.interface_adapter.render_content(content, "markdown")
     
     async def process_search_command(self, query: str):
-        """Process a search command."""
+        """Process a search command using the workflow system."""
         self.current_state = "searching"
         
         try:
-            with self.console.status(f"[bold green]Searching ArXiv for: '{query}'..."):
-                from .arxiv_downloader import search_arxiv_papers
-                papers = search_arxiv_papers(query, k=5)
+            # Use the workflow system for paper search
+            result = await self.workflow_runner.start_add_paper_workflow(query)
             
-            self.display_papers(papers)
-            self.current_state = "paper_selection"
+            if result and not result.startswith("❌") and not result.startswith("No papers"):
+                self.current_state = "paper_selection"
+            else:
+                self.current_state = "ready"
             
         except Exception as e:
-            self.console.print(f"❌ [red]Search failed: {str(e)}[/red]")
+            self.interface_adapter.show_error(f"Search failed: {str(e)}")
             self.current_state = "ready"
     
     async def process_select_command(self, selection: str):
-        """Process a paper selection command."""
+        """Process a paper selection command using the workflow system."""
         if not self.current_papers:
-            self.console.print("❌ [red]No papers available to select. Search first.[/red]")
+            self.interface_adapter.show_error("No papers available to select. Search first.")
             return
         
         try:
             paper_num = int(selection) - 1
             if paper_num < 0 or paper_num >= len(self.current_papers):
-                self.console.print(f"❌ [red]Invalid selection. Choose 1-{len(self.current_papers)}[/red]")
+                self.interface_adapter.show_error(f"Invalid selection. Choose 1-{len(self.current_papers)}")
                 return
             
             selected_paper = self.current_papers[paper_num]
-            self.console.print(f"✅ [green]Selected: {selected_paper.title}[/green]")
+            self.interface_adapter.show_success(f"Selected: {selected_paper.title}")
             
-            # Run the workflow for the selected paper
-            await self.run_paper_workflow(selected_paper)
+            # Use the workflow system for paper processing
+            result = await self.workflow_runner.process_paper_selection(selected_paper)
+            
+            # Check if we got a summary event back for potential improvements
+            if hasattr(result, 'paper') and hasattr(result, 'summary') and hasattr(result, 'paper_text'):
+                self.current_summary = result.summary
+                self.current_paper = result.paper
+                self.current_paper_text = result.paper_text
+                self.current_state = "summary_ready"
+                
+                self.interface_adapter.show_info("You can now:")
+                self.interface_adapter.show_info("• Type 'improve <feedback>' to refine the summary")
+                self.interface_adapter.show_info("• Type 'save' to save the summary")
+            else:
+                self.current_state = "ready"
             
         except ValueError:
-            self.console.print("❌ [red]Invalid selection. Enter a number.[/red]")
+            self.interface_adapter.show_error("Invalid selection. Enter a number.")
         except Exception as e:
-            self.console.print(f"❌ [red]Selection failed: {str(e)}[/red]")
+            self.interface_adapter.show_error(f"Selection failed: {str(e)}")
     
-    async def run_paper_workflow(self, paper: PaperMetadata):
-        """Run the complete paper processing workflow."""
-        self.current_state = "processing"
-        
-        try:
-            # Download
-            with self.console.status("[bold yellow]📥 Downloading paper..."):
-                from .arxiv_downloader import download_paper
-                local_path = download_paper(paper, FILE_LOCATIONS)
-            
-            self.console.print(f"✅ [green]Downloaded to: {local_path}[/green]")
-            
-            # Index
-            with self.console.status("[bold yellow]🔍 Indexing paper..."):
-                from .vector_store import index_file
-                paper_text = index_file(paper)
-            
-            self.console.print(f"✅ [green]Indexed {len(paper_text)} characters[/green]")
-            
-            # Summarize
-            with self.console.status("[bold yellow]📝 Generating summary..."):
-                from .summarizer import summarize_paper
-                summary = summarize_paper(paper_text, paper)
-            
-            self.console.print("✅ [green]Summary generated![/green]\n")
-            self.render_markdown_response(summary)
-            
-            # Store for potential improvements
-            self.current_summary = summary
-            self.current_paper = paper
-            self.current_paper_text = paper_text
-            self.current_state = "summary_ready"
-            
-            self.console.print("\n[yellow]💡 You can now:[/yellow]")
-            self.console.print("• Type 'improve <feedback>' to refine the summary")
-            self.console.print("• Type 'save' to save the summary")
-            self.console.print("• Type 'find <new query>' to start over")
-            
-        except Exception as e:
-            self.console.print(f"❌ [red]Workflow failed: {str(e)}[/red]")
-            self.current_state = "ready"
     
     async def process_improve_command(self, feedback: str):
-        """Process a summary improvement command."""
+        """Process a summary improvement command using the workflow system."""
         if self.current_state != "summary_ready":
-            self.console.print("❌ [red]No summary to improve. Process a paper first.[/red]")
+            self.interface_adapter.show_error("No summary to improve. Process a paper first.")
             return
         
         try:
-            with self.console.status("[bold yellow]🔄 Improving summary..."):
-                from .summarizer import summarize_paper
-                improved_summary = summarize_paper(
-                    self.current_paper_text, 
-                    self.current_paper, 
-                    feedback=feedback, 
-                    previous_summary=self.current_summary
-                )
+            result = await self.workflow_runner.improve_summary(
+                self.current_paper,
+                self.current_summary,
+                self.current_paper_text,
+                feedback
+            )
             
-            self.console.print("✅ [green]Summary improved![/green]\n")
-            self.render_markdown_response(improved_summary)
-            
-            # Update current summary
-            self.current_summary = improved_summary
-            
-            self.console.print("\n[yellow]💡 You can continue to improve or type 'save' to save.[/yellow]")
+            # Check if we got an improved summary back
+            if hasattr(result, 'summary'):
+                self.current_summary = result.summary
+                self.interface_adapter.show_info("You can continue to improve or type 'save' to save.")
             
         except Exception as e:
-            self.console.print(f"❌ [red]Improvement failed: {str(e)}[/red]")
+            self.interface_adapter.show_error(f"Improvement failed: {str(e)}")
     
     async def process_save_command(self):
-        """Process a save summary command."""
+        """Process a save summary command using the workflow system."""
         if self.current_state != "summary_ready":
-            self.console.print("❌ [red]No summary to save. Process a paper first.[/red]")
+            self.interface_adapter.show_error("No summary to save. Process a paper first.")
             return
         
         try:
-            with self.console.status("[bold yellow]💾 Saving summary..."):
-                from .summarizer import save_summary
-                file_path = save_summary(self.current_summary, self.current_paper.paper_id)
-            
-            self.console.print(f"✅ [green]Summary saved to: {file_path}[/green]")
-            
-            # Show completion summary
-            completion_panel = Panel(
-                f"""
-🎉 **Process Complete!**
-
-**Paper:** {self.current_paper.title}
-**Actions Completed:**
-  • Downloaded PDF
-  • Indexed for search
-  • Generated summary
-  • Saved to filesystem
-
-**Summary Location:** {file_path}
-
-You can now find another paper or type 'quit' to exit.
-                """,
-                title="✅ Success",
-                border_style="green"
+            result = await self.workflow_runner.save_summary(
+                self.current_paper,
+                self.current_summary,
+                self.current_paper_text
             )
-            self.console.print(completion_panel)
             
-            # Reset state
+            # Reset state after successful save
             self.current_state = "ready"
             
         except Exception as e:
-            self.console.print(f"❌ [red]Save failed: {str(e)}[/red]")
+            self.interface_adapter.show_error(f"Save failed: {str(e)}")
     
     async def process_semantic_search_command(self, query: str):
-        """Process a semantic search command."""
+        """Process a semantic search command using the workflow system."""
         self.current_state = "semantic_searching"
         
         try:
-            with self.console.status(f"[bold green]Searching indexed papers for: '{query}'..."):
-                result = await self.workflow_runner.start_semantic_search_workflow(query)
+            result = await self.workflow_runner.start_semantic_search_workflow(query)
             
             if result and not result.startswith("❌"):
-                self.console.print("✅ [green]Semantic search completed![/green]\n")
-                
-                # Render the result as markdown
-                self.render_markdown_response(result)
-                
                 # Add to history
                 self.add_to_history("assistant", result)
-                
-            else:
-                # Handle error case
-                error_msg = result if result else "Unknown error occurred"
-                self.console.print(f"❌ [red]{error_msg}[/red]")
             
             # Reset state
             self.current_state = "ready"
             
         except Exception as e:
-            self.console.print(f"❌ [red]Semantic search failed: {str(e)}[/red]")
+            self.interface_adapter.show_error(f"Semantic search failed: {str(e)}")
             self.current_state = "ready"
     
     async def process_list_command(self):
@@ -552,7 +448,7 @@ You can now find another paper or type 'quit' to exit.
                     self.console.print(f"  • ... and {len(failed_papers) - 3} more")
             
         except Exception as e:
-            self.console.print(f"❌ [red]List command failed: {str(e)}[/red]")
+            self.interface_adapter.show_error(f"List command failed: {str(e)}")
     
     async def run_chat_loop(self):
         """Main chat loop."""
@@ -635,7 +531,7 @@ You can now find another paper or type 'quit' to exit.
                     await self.process_list_command()
                 
                 else:
-                    self.console.print("❓ [yellow]Unknown command. Type 'help' for available commands.[/yellow]")
+                    self.interface_adapter.show_info("Unknown command. Type 'help' for available commands.")
                 
             except KeyboardInterrupt:
                 self.console.print("\n👋 [bold blue]Goodbye! Happy researching![/bold blue]")
@@ -644,7 +540,7 @@ You can now find another paper or type 'quit' to exit.
                 self.console.print("\n👋 [bold blue]Goodbye! Happy researching![/bold blue]")
                 break
             except Exception as e:
-                self.console.print(f"❌ [red]Unexpected error: {str(e)}[/red]")
+                self.interface_adapter.show_error(f"Unexpected error: {str(e)}")
 
 
 def main():

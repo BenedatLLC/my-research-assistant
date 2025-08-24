@@ -25,6 +25,7 @@ from my_research_assistant.workflow import (
 )
 from my_research_assistant.project_types import PaperMetadata
 from my_research_assistant.file_locations import FileLocations
+from my_research_assistant.interface_adapter import InterfaceAdapter
 from my_research_assistant import file_locations
 from llama_index.core.workflow import StartEvent, StopEvent, Context
 from llama_index.core.llms import LLM
@@ -79,9 +80,24 @@ def sample_paper_metadata():
 
 
 @pytest.fixture
-def workflow(mock_llm, temp_file_locations):
+def mock_interface():
+    """Create a mock interface adapter for testing."""
+    interface = Mock(spec=InterfaceAdapter)
+    interface.show_progress = Mock()
+    interface.show_success = Mock()
+    interface.show_error = Mock()
+    interface.show_info = Mock()
+    interface.render_content = Mock()
+    interface.display_papers = Mock()
+    interface.progress_context = Mock()
+    interface.progress_context.return_value.__enter__ = Mock()
+    interface.progress_context.return_value.__exit__ = Mock()
+    return interface
+
+@pytest.fixture
+def workflow(mock_llm, mock_interface, temp_file_locations):
     """Create a workflow instance for testing."""
-    return ResearchAssistantWorkflow(llm=mock_llm, file_locations=temp_file_locations)
+    return ResearchAssistantWorkflow(llm=mock_llm, interface=mock_interface, file_locations=temp_file_locations)
 
 
 class TestWorkflowEvents:
@@ -369,17 +385,17 @@ class TestWorkflowSteps:
 class TestWorkflowRunner:
     """Test the WorkflowRunner helper class."""
     
-    def test_workflow_runner_init(self, mock_llm, temp_file_locations):
+    def test_workflow_runner_init(self, mock_llm, mock_interface, temp_file_locations):
         """Test WorkflowRunner initialization."""
-        runner = WorkflowRunner(llm=mock_llm, file_locations=temp_file_locations)
+        runner = WorkflowRunner(llm=mock_llm, interface=mock_interface, file_locations=temp_file_locations)
         
         assert runner.workflow is not None
         assert isinstance(runner.workflow, ResearchAssistantWorkflow)
         assert runner.current_state is None
     
-    def test_start_workflow_basic(self, mock_llm, temp_file_locations, sample_paper_metadata):
+    def test_start_workflow_basic(self, mock_llm, mock_interface, temp_file_locations, sample_paper_metadata):
         """Test starting a workflow with mocked components."""
-        runner = WorkflowRunner(llm=mock_llm, file_locations=temp_file_locations)
+        runner = WorkflowRunner(llm=mock_llm, interface=mock_interface, file_locations=temp_file_locations)
         
         # This would require more complex mocking of the entire workflow execution
         # For now, we just test that the method exists and can be called
@@ -392,11 +408,12 @@ class TestWorkflowRunner:
 class TestWorkflowIntegration:
     """Integration tests for the complete workflow."""
     
-    def test_workflow_initialization(self, mock_llm, temp_file_locations):
+    def test_workflow_initialization(self, mock_llm, mock_interface, temp_file_locations):
         """Test that workflow can be properly initialized."""
-        workflow = ResearchAssistantWorkflow(llm=mock_llm, file_locations=temp_file_locations)
+        workflow = ResearchAssistantWorkflow(llm=mock_llm, interface=mock_interface, file_locations=temp_file_locations)
         
         assert workflow.llm == mock_llm
+        assert workflow.interface == mock_interface
         assert workflow.file_locations == temp_file_locations
         assert hasattr(workflow, 'tools')
         assert len(workflow.tools) == 6  # All 6 expected tools
