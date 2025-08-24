@@ -49,7 +49,7 @@ from .file_locations import FileLocations, FILE_LOCATIONS
 from .arxiv_downloader import search_arxiv_papers, download_paper
 from .vector_store import index_file, search_index
 from .summarizer import summarize_paper, save_summary
-from .types import PaperMetadata, SearchResult
+from .project_types import PaperMetadata, SearchResult
 
 
 # Define custom events for the workflow

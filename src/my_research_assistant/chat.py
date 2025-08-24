@@ -23,7 +23,7 @@ from rich.layout import Layout
 from .workflow import WorkflowRunner, ResearchAssistantWorkflow
 from .models import get_default_model
 from .file_locations import FILE_LOCATIONS
-from .types import PaperMetadata
+from .project_types import PaperMetadata
 
 
 class ChatInterface:

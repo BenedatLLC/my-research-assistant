@@ -7,7 +7,7 @@ from typing import Optional
 from pydantic import BaseModel
 import arxiv
 from .file_locations import FILE_LOCATIONS, FileLocations
-from .types import PaperMetadata
+from .project_types import PaperMetadata
 
 CATEGORY_DATA=\
 """category_id,category_name,description

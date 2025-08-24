@@ -23,7 +23,7 @@ from my_research_assistant.workflow import (
     SemanticSearchEvent,
     SemanticSearchResultsEvent
 )
-from my_research_assistant.types import PaperMetadata
+from my_research_assistant.project_types import PaperMetadata
 from my_research_assistant.file_locations import FileLocations
 from my_research_assistant import file_locations
 from llama_index.core.workflow import StartEvent, StopEvent, Context
@@ -150,7 +150,7 @@ class TestWorkflowSteps:
     async def test_search_papers_success(self, workflow, sample_paper_metadata):
         """Test successful paper search step."""
         # Mock the search function
-        with patch('my_research_assistant.workflow_add_paper.search_arxiv_papers') as mock_search:
+        with patch('my_research_assistant.workflow.search_arxiv_papers') as mock_search:
             mock_search.return_value = [sample_paper_metadata]
             
             # Create mock context
@@ -161,7 +161,7 @@ class TestWorkflowSteps:
             start_event = StartEvent(query="test query")
             
             # Run the step
-            result = await workflow.search_papers(ctx, start_event)
+            result = await workflow.search_papers_impl(ctx, "test query")
             
             # Verify results
             assert isinstance(result, SearchResultsEvent)
@@ -178,14 +178,14 @@ class TestWorkflowSteps:
     @pytest.mark.asyncio
     async def test_search_papers_no_results(self, workflow):
         """Test paper search step when no papers found."""
-        with patch('my_research_assistant.workflow_add_paper.search_arxiv_papers') as mock_search:
+        with patch('my_research_assistant.workflow.search_arxiv_papers') as mock_search:
             mock_search.return_value = []
             
             ctx = Mock(spec=Context)
             ctx.write_event_to_stream = Mock()
             start_event = StartEvent(query="nonexistent query")
             
-            result = await workflow.search_papers(ctx, start_event)
+            result = await workflow.search_papers_impl(ctx, "nonexistent query")
             
             assert isinstance(result, StopEvent)
             assert "No papers found" in result.result
@@ -193,14 +193,14 @@ class TestWorkflowSteps:
     @pytest.mark.asyncio
     async def test_search_papers_exception(self, workflow):
         """Test paper search step when search fails."""
-        with patch('my_research_assistant.workflow_add_paper.search_arxiv_papers') as mock_search:
+        with patch('my_research_assistant.workflow.search_arxiv_papers') as mock_search:
             mock_search.side_effect = Exception("API Error")
             
             ctx = Mock(spec=Context)
             ctx.write_event_to_stream = Mock()
             start_event = StartEvent(query="test query")
             
-            result = await workflow.search_papers(ctx, start_event)
+            result = await workflow.search_papers_impl(ctx, "test query")
             
             assert isinstance(result, StopEvent)
             assert "Search failed" in result.result
@@ -235,7 +235,7 @@ class TestWorkflowSteps:
     @pytest.mark.asyncio
     async def test_download_paper_step_success(self, workflow, sample_paper_metadata, temp_file_locations):
         """Test successful paper download."""
-        with patch('my_research_assistant.workflow_add_paper.download_paper') as mock_download:
+        with patch('my_research_assistant.workflow.download_paper') as mock_download:
             mock_download.return_value = "/tmp/test.pdf"
             
             ctx = Mock(spec=Context)
@@ -254,7 +254,7 @@ class TestWorkflowSteps:
     @pytest.mark.asyncio
     async def test_download_paper_step_failure(self, workflow, sample_paper_metadata):
         """Test paper download failure."""
-        with patch('my_research_assistant.workflow_add_paper.download_paper') as mock_download:
+        with patch('my_research_assistant.workflow.download_paper') as mock_download:
             mock_download.side_effect = Exception("Download failed")
             
             ctx = Mock(spec=Context)
@@ -270,7 +270,7 @@ class TestWorkflowSteps:
     @pytest.mark.asyncio
     async def test_index_paper_step_success(self, workflow, sample_paper_metadata):
         """Test successful paper indexing."""
-        with patch('my_research_assistant.workflow_add_paper.index_file') as mock_index:
+        with patch('my_research_assistant.workflow.index_file') as mock_index:
             mock_index.return_value = "Sample paper text content"
             
             ctx = Mock(spec=Context)
@@ -292,7 +292,7 @@ class TestWorkflowSteps:
     @pytest.mark.asyncio
     async def test_generate_summary_step_success(self, workflow, sample_paper_metadata):
         """Test successful summary generation."""
-        with patch('my_research_assistant.workflow_add_paper.summarize_paper') as mock_summarize:
+        with patch('my_research_assistant.workflow.summarize_paper') as mock_summarize:
             mock_summarize.return_value = "# Test Summary\nThis is a test summary"
             
             ctx = Mock(spec=Context)
@@ -315,7 +315,7 @@ class TestWorkflowSteps:
     @pytest.mark.asyncio
     async def test_improve_summary_step_success(self, workflow, sample_paper_metadata):
         """Test successful summary improvement."""
-        with patch('my_research_assistant.workflow_add_paper.summarize_paper') as mock_summarize:
+        with patch('my_research_assistant.workflow.summarize_paper') as mock_summarize:
             mock_summarize.return_value = "# Improved Summary\nThis is an improved summary"
             
             ctx = Mock(spec=Context)
@@ -344,7 +344,7 @@ class TestWorkflowSteps:
     @pytest.mark.asyncio
     async def test_save_summary_step_success(self, workflow, sample_paper_metadata, temp_file_locations):
         """Test successful summary saving."""
-        with patch('my_research_assistant.workflow_add_paper.save_summary') as mock_save:
+        with patch('my_research_assistant.workflow.save_summary') as mock_save:
             expected_path = f"{temp_file_locations.summaries_dir}/2503.22738.md"
             mock_save.return_value = expected_path
             
@@ -383,8 +383,10 @@ class TestWorkflowRunner:
         
         # This would require more complex mocking of the entire workflow execution
         # For now, we just test that the method exists and can be called
-        assert hasattr(runner, 'start_workflow')
-        assert callable(runner.start_workflow)
+        assert hasattr(runner, 'start_add_paper_workflow')
+        assert callable(runner.start_add_paper_workflow)
+        assert hasattr(runner, 'start_semantic_search_workflow')
+        assert callable(runner.start_semantic_search_workflow)
 
 
 class TestWorkflowIntegration:
@@ -397,7 +399,7 @@ class TestWorkflowIntegration:
         assert workflow.llm == mock_llm
         assert workflow.file_locations == temp_file_locations
         assert hasattr(workflow, 'tools')
-        assert len(workflow.tools) == 5  # All 5 expected tools
+        assert len(workflow.tools) == 6  # All 6 expected tools
     
     def test_workflow_tools_registration(self, workflow):
         """Test that all required tools are registered."""
@@ -405,6 +407,7 @@ class TestWorkflowIntegration:
             "search_arxiv_papers",
             "download_paper", 
             "index_file",
+            "search_index",
             "summarize_paper",
             "save_summary"
         ]

@@ -11,31 +11,11 @@ from llama_index.core.agent.workflow import FunctionAgent
 from llama_index.core.memory import ChatMemoryBuffer
 from llama_index.llms.openai import OpenAI
 
-from .types import PaperMetadata
+from .project_types import PaperMetadata
 from .file_locations import FILE_LOCATIONS
 from .models import DEFAULT_MODEL_NAME
+from .prompt import subst_prompt
 
-# Define the prompt for summarization
-# This prompt guides the LLM to produce the desired structured output in Markdown.
-summarization_prompt = """
-Please summarize the following text block into a markdown document.
-The summary should include the following sections:
-
-1.  **Key ideas of the paper**: Briefly describe the main contributions and core concepts.
-2.  **Implementation approach**: Explain how the proposed method is built and works.
-3.  **Experiments**: Detail the experimental setup, datasets used, and key results.
-4.  **Related work**: Discuss how this work relates to and differs from previous research.
-
-The title of the markdown summary should be the title of the paper using a markdown level 1 header
-("#").
-
----
-Text to summarize:
-{{text_block}}
----
-
-Markdown Summary:
-"""
 
 class SummarizationError(Exception):
     pass
@@ -110,37 +90,16 @@ def summarize_paper(text: str, pmd: PaperMetadata, feedback: Optional[str] = Non
     # Build the prompt based on whether we have feedback
     if feedback and previous_summary:
         # We're improving an existing summary
-        improved_prompt = f"""
-Please improve the following paper summary based on the user's feedback.
-
-**User Feedback:** {feedback}
-
-**Previous Summary:**
-{previous_summary}
-
-**Original Paper Text:**
-{{text_block}}
-
-Please provide an improved markdown summary that addresses the user's feedback while maintaining the following structure:
-
-1.  **Key ideas of the paper**: Briefly describe the main contributions and core concepts.
-2.  **Implementation approach**: Explain how the proposed method is built and works.
-3.  **Experiments**: Detail the experimental setup, datasets used, and key results.
-4.  **Related work**: Discuss how this work relates to and differs from previous research.
-
-The title of the markdown summary should be the title of the paper using a markdown level 1 header ("#").
-
-Improved Markdown Summary:
-"""
-        prompt = improved_prompt
+        prompt = subst_prompt('improve-summary-v2', feedback=feedback,
+                              previous_summary=previous_summary,
+                              text_block=text)
     else:
         # Use the original summarization prompt
-        prompt = summarization_prompt
+        prompt = subst_prompt('base-summary-v2', text_block=text)
 
     try:
         llm = OpenAI(model=DEFAULT_MODEL_NAME)
-        # Make the LLM call to get the summary
-        response = llm.complete(prompt.replace('{{text_block}}', text))
+        response = llm.complete(prompt)
         markdown = insert_metadata(extract_markdown(response.text), pmd)
         return markdown
     except SummarizationError:

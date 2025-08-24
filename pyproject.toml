@@ -17,6 +17,7 @@ dependencies = [
     "pillow>=11.3.0",
     "pydantic>=2.11.7",
     "pymupdf>=1.26.3",
+    "pymupdf4llm>=0.0.27",
     "reportlab>=4.4.3",
     "rich>=14.1.0",
 ]
@@ -29,6 +30,9 @@ rebuild-index = "my_research_assistant.vector_store:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.setuptools.package-data]
+my_research_assistant = ["prompts/*.md"]
 
 [dependency-groups]
 dev = [

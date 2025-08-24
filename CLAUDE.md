@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is an agentic research assistant focused on ArXiv papers. The system allows users to search, download, index, and summarize research papers, building a knowledge base with semantic search capabilities.
+This is a command-line chatbot agent for keeping up with the latest research in generative AI, as published on ArXiv. The system provides an interactive terminal interface using the `rich` Python library, enabling users to find, download, index, summarize, and search through research papers with semantic capabilities.
 
 ## Commands
 
@@ -23,6 +23,11 @@ pytest tests/test_summarizer.py
 pytest -v
 ```
 
+Write new unit tests under tests/ rather than creating throwaway tests to validate changes.
+When testing anything that can change files under docs/, be sure to use FileLocations to override
+the default location and make changes into a temporary directory. DO NOT modify the files under
+docs/ without first asking the user.
+
 ### Running the Application
 ```bash
 # Run the main application
@@ -39,10 +44,17 @@ uv run python -m my_research_assistant
 ### Interactive Chat Interface
 The `chat` command launches a rich terminal interface with:
 - Interactive paper search and selection
-- Real-time workflow progress with visual feedback
+- Real-time workflow progress with visual feedback  
 - Markdown rendering for summaries and responses
-- Command-based interaction (search, select, improve, save)
+- Command-based interaction for research operations
 - Conversation history and status tracking
+
+#### Core User Operations
+1. **Find, download, index, and summarize papers** - Keyword search with user refinement, automated processing pipeline
+2. **View repository content** - List indexed papers, view individual papers and summaries
+3. **Semantic search** - Search across papers with summarized answers and page references
+4. **Deep research** - High-level summary search combined with detailed chunk analysis
+5. **Repository maintenance** - Re-index, re-summarize, and manage the paper collection
 
 ### Package Management
 ```bash
@@ -69,8 +81,11 @@ The system is built around a pipeline architecture with these core components:
 
 ### Key Components
 
-- **`PaperMetadata`** (`types.py`) - Central data structure containing paper information (title, authors, categories, URLs, local paths)
+- **`PaperMetadata`** (`project_types.py`) - Central data structure containing paper information (title, authors, categories, URLs, local paths)
 - **`FileLocations`** (`file_locations.py`) - Configuration for data storage locations (PDFs, summaries, index, images)
+- **`ChatInterface`** (`chat.py`) - Rich terminal interface with conversation management and command processing
+- **`WorkflowRunner`** (`workflow.py`) - LlamaIndex workflow orchestration for research operations
+- **`PromptManager`** (`prompt.py`) - Template-based prompt system with variable substitution from markdown files
 - **Global Vector Store** (`vector_store.py`) - Maintains persistent LlamaIndex vector store across sessions
 - **Model Management** (`models.py`) - Centralized LLM configuration with caching
 
@@ -83,6 +98,13 @@ ${DOC_HOME}/
 └── index/          # LlamaIndex vector store persistence
 ```
 
+### Prompt System
+The system uses a template-based prompt architecture with:
+- Markdown template files stored in `src/my_research_assistant/prompts/`
+- Variable substitution using `{{VAR_NAME}}` syntax
+- Versioned prompts (v1, v2) for base summaries and improvements
+- Centralized prompt management through `prompt.py`
+
 ### Environment Configuration
 - `DOC_HOME` - Required environment variable specifying base directory for all data
 - `DEFAULT_MODEL` - Optional, defaults to 'gpt-4o' for LLM operations
@@ -93,9 +115,11 @@ The system uses a two-stage approach:
 2. **Semantic Reranking** - LlamaIndex embeddings for similarity-based ranking, with fallback to text-based Jaccard similarity
 
 ### LlamaIndex Integration
-- Uses LlamaIndex for document chunking, embedding, and vector storage
+- Uses LlamaIndex workflows for complex multi-step research operations
+- Document chunking, embedding, and vector storage capabilities
 - Supports incremental indexing with persistent storage
 - Metadata enrichment (title, authors, categories) for enhanced retrieval
+- Event-driven workflow architecture for paper processing pipeline
 
 ### Testing Structure
 - Tests use pytest with custom `conftest.py` for path setup
@@ -104,6 +128,7 @@ The system uses a two-stage approach:
 - Mock-based unit tests for individual workflow steps
 - Integration tests verify end-to-end functionality
 - Comprehensive workflow testing in `tests/test_workflow.py`
+- Prompt system testing in `tests/test_prompt.py`
 
 ## Development Notes
 
@@ -113,9 +138,10 @@ The system uses a two-stage approach:
 - PDF files are named using ArXiv's default filename convention
 
 ### Error Handling
-- Custom exceptions: `IndexError`, `ImageExtractError`, `ConfigError`
+- Custom exceptions: `IndexError`, `ImageExtractError`, `ConfigError`, `PromptFileError`, `PromptVarError`
 - Graceful fallbacks for embedding failures (switches to text-based similarity)
 - Robust file existence checking before operations
+- Prompt template validation and error reporting
 
 ### Model Usage
 - Centralized model configuration supports caching for performance

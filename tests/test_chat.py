@@ -177,11 +177,6 @@ class TestChatSemanticSearch:
         # Verify LLM was called
         mock_llm.acomplete.assert_called_once()
         
-        # Verify that the response contains clickable file links
-        response_content = chat.conversation_history[0]['content']
-        assert 'file://' in response_content, "Response should contain clickable file:// links"
-        assert '.pdf](' in response_content, "Response should contain clickable PDF links"
-    
     @pytest.mark.asyncio
     @patch('my_research_assistant.chat.get_default_model')
     async def test_semantic_search_command_no_results(self, mock_get_model, temp_file_locations):

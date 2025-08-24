@@ -1,4 +1,5 @@
 
+import os
 import tempfile
 import pytest
 from os.path import exists
@@ -22,6 +23,10 @@ def temp_file_locations():
     
     # Create a temporary directory
     with tempfile.TemporaryDirectory() as temp_dir:
+        # Create required prompts directory in temp directory
+        prompts_dir = os.path.join(temp_dir, 'prompts')
+        os.makedirs(prompts_dir, exist_ok=True)
+        
         # Create new FileLocations pointing to the temp directory
         temp_locations = file_locations.FileLocations.get_locations(temp_dir)
         
@@ -270,4 +275,94 @@ def test_search_index_summary_filename_detection(temp_file_locations):
         expected_summary_filename = f"{paper_id}.md"
         assert results_with_summary[0].summary_filename == expected_summary_filename, \
             f"Should detect summary file {expected_summary_filename}"
+
+
+def test_index_file_using_pymupdf_parser(temp_file_locations):
+    """Test the index_file_using_pymupdf_parser function"""
+    from my_research_assistant.arxiv_downloader import get_paper_metadata, download_paper
+    import my_research_assistant.vector_store as vs
+    from os.path import exists
+    
+    # Override the imported FILE_LOCATIONS
+    vs.FILE_LOCATIONS = temp_file_locations
+    
+    # Download a paper for testing
+    paper_id = '2503.22738'
+    md = get_paper_metadata(paper_id)
+    download_paper(md, temp_file_locations)
+    assert exists(md.get_local_pdf_path(temp_file_locations))
+    
+    # Test the PyMuPDF parser indexing function
+    vs.index_file_using_pymupdf_parser(md, temp_file_locations)
+    
+    # Verify the vector store was created and populated
+    assert vs.VECTOR_STORE is not None
+    
+    # Test that we can retrieve documents from the indexed content
+    rtr = vs.VECTOR_STORE.as_retriever()
+    response = rtr.retrieve('shielding agents')
+    assert len(response) > 0, "Should find results for 'shielding agents' query"
+    
+    # Verify the metadata was properly added to the indexed documents
+    found_result = False
+    for result in response:
+        if hasattr(result, 'metadata'):
+            metadata = result.metadata
+            if 'paper_id' in metadata and metadata['paper_id'] == paper_id:
+                found_result = True
+                assert 'title' in metadata
+                assert 'authors' in metadata  
+                assert 'categories' in metadata
+                assert 'file_path' in metadata
+                assert metadata['title'] == "ShieldAgent: Shielding Agents via Verifiable Safety Policy Reasoning"
+                break
+    
+    assert found_result, "Should find at least one result with proper metadata"
+    
+    # Test search functionality with the PyMuPDF indexed content
+    results = vs.search_index('shielding agents', k=3, file_locations=temp_file_locations)
+    assert len(results) > 0, "Should find results through search_index function"
+    
+    # Verify result structure
+    result = results[0]
+    assert result.paper_id == paper_id
+    assert result.paper_title == "ShieldAgent: Shielding Agents via Verifiable Safety Policy Reasoning"
+    assert isinstance(result.page, int)
+    assert len(result.chunk) > 0
+
+
+def test_parse_file_caching(temp_file_locations):
+    """Test that parse_file caches extracted text and loads from cache on subsequent calls"""
+    from my_research_assistant.arxiv_downloader import get_paper_metadata, download_paper
+    import my_research_assistant.vector_store as vs
+    from os.path import exists, join
+    
+    # Override the imported FILE_LOCATIONS
+    vs.FILE_LOCATIONS = temp_file_locations
+    
+    # Download a paper for testing
+    paper_id = '2503.22738'
+    md = get_paper_metadata(paper_id)
+    download_paper(md, temp_file_locations)
+    assert exists(md.get_local_pdf_path(temp_file_locations))
+    
+    # Verify the cache file doesn't exist yet
+    temp_file_locations.ensure_extracted_paper_text_dir()
+    cache_path = join(temp_file_locations.extracted_paper_text_dir, f"{paper_id}.md")
+    assert not exists(cache_path), "Cache file should not exist initially"
+    
+    # First call to parse_file should create the cache
+    paper_text1 = vs.parse_file(md, temp_file_locations)
+    assert len(paper_text1) > 0, "Should extract text from PDF"
+    assert exists(cache_path), "Cache file should be created after first parse"
+    
+    # Second call should load from cache (should be identical content)
+    paper_text2 = vs.parse_file(md, temp_file_locations)
+    assert paper_text1 == paper_text2, "Second call should return identical text from cache"
+    assert len(paper_text2) > 0, "Should load cached text"
+    
+    # Verify cache file contains the expected content
+    with open(cache_path, 'r', encoding='utf-8') as f:
+        cached_content = f.read()
+    assert cached_content == paper_text1, "Cache file should contain the extracted text"
 

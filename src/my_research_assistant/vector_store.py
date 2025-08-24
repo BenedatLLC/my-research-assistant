@@ -7,8 +7,10 @@ import chromadb
 from llama_index.core import SimpleDirectoryReader, VectorStoreIndex, StorageContext
 from llama_index.core.schema import Document
 from llama_index.vector_stores.chroma import ChromaVectorStore
+import pymupdf4llm
+
 from .file_locations import FILE_LOCATIONS, FileLocations
-from .types import PaperMetadata, SearchResult
+from .project_types import PaperMetadata, SearchResult
 from .arxiv_downloader import get_downloaded_paper_ids, get_paper_metadata
 
 # Initialize a global variable to hold the VectorStoreIndex object.
@@ -76,7 +78,56 @@ def _load_existing_chroma_vector_store(file_locations: FileLocations) -> VectorS
     return VectorStoreIndex([], storage_context=storage_context)
 
 
-def index_file(pmd:PaperMetadata, file_locations:FileLocations=FILE_LOCATIONS) -> str:
+def parse_file(pmd:PaperMetadata, file_locations:FileLocations=FILE_LOCATIONS) -> str:
+    """
+    Parses a single PDF file, returning a markdown representation of the text.
+    We currently use PyMuPDF4LLM, which seems to have the best extraction. It is clearly
+    better than the parser that comes with LlamaIndex.
+
+    The extracted text is saved in extracted_paper_text_dir as PAPER_ID.md.
+    If the file was previously parsed and cached, it loads from the cache instead of re-parsing.
+    
+    Parameters
+    ----------
+    pmd: PaperMetadata
+        The metadata about the paper to be indexed, including file path, title,
+        authors, and categories.
+    file_locations: FileLocations, optional
+        Locations to read pdfs and save the extracted text
+
+    Returns
+    -------
+    str
+        The extracted paper markdown text.
+
+    """
+    # Get the local PDF path
+    local_pdf_path = pmd.get_local_pdf_path(file_locations)
+    
+    # Check if extracted text already exists for PyMuPDF parser
+    file_locations.ensure_extracted_paper_text_dir()
+    extracted_text_path = os.path.join(file_locations.extracted_paper_text_dir,
+                                       f"{pmd.paper_id}.md")
+    
+    if os.path.exists(extracted_text_path):
+        print(f"Using existing extracted text from: {extracted_text_path}")
+        with open(extracted_text_path, 'r', encoding='utf-8') as f:
+            paper_text = f.read()
+        print(f"Loaded {len(paper_text)} characters of text")
+    else:
+        # Parse the PDF using PyMuPDF4LLM
+        print("Parsing PDF with PyMuPDF4LLM...")
+        paper_text = pymupdf4llm.to_markdown(local_pdf_path)
+        print(f"Extracted {len(paper_text)} characters of text")
+        
+        # Save the extracted text for future reference
+        with open(extracted_text_path, 'w', encoding='utf-8') as f:
+            f.write(paper_text)
+        print(f"Saved extracted text to: {extracted_text_path}")
+    return paper_text
+
+
+def index_file_using_llama_index_parser(pmd:PaperMetadata, file_locations:FileLocations=FILE_LOCATIONS) -> None:
     """
     Parses, chunks, and indexes a single PDF file, then saves the index to a specified path.
     
@@ -94,8 +145,7 @@ def index_file(pmd:PaperMetadata, file_locations:FileLocations=FILE_LOCATIONS) -
 
     Returns
     -------
-    str
-        The concatenated text content of all document chunks.
+    Nothing
 
     Raises
     ------
@@ -137,19 +187,126 @@ def index_file(pmd:PaperMetadata, file_locations:FileLocations=FILE_LOCATIONS) -
     # 3. Insert the new document into the global VECTOR_STORE.
     # This automatically handles chunking and embedding.
     print(f"Adding new document '{local_pdf_path}' with {len(documents)} chunks to the index.")
-    result_text = []
     for doc in documents:
+        # we first add metadata properties to each chunk
         doc.metadata['file_path'] = 'pdfs/' + doc.metadata['file_name']
         doc.metadata['paper_id'] = pmd.paper_id
         doc.metadata['title'] = pmd.title
         doc.metadata['authors'] = ', '.join(pmd.authors)
         doc.metadata['categories'] = ', '.join(pmd.categories)
-        result_text.append(doc.text)
         VECTOR_STORE.insert(doc)
 
     # 4. ChromaDB automatically persists changes, no need to manually save
     print("Index updated successfully (ChromaDB auto-persists).")
-    return ''.join(result_text)
+
+
+def index_file_using_pymupdf_parser(pmd:PaperMetadata, file_locations:FileLocations=FILE_LOCATIONS) -> None:
+    """
+    Parses, chunks, and indexes a single PDF file using PyMuPDF4LLM parser, then saves the index.
+    
+    This function is similar to index_file_using_llama_index_parser but uses PyMuPDF4LLM's
+    LlamaMarkdownReader to create document chunks. The function loads a PDF document, 
+    creates chunks using PyMuPDF4LLM, adds metadata (title, authors, categories), 
+    and inserts it into a global VectorStoreIndex. The index is automatically 
+    persisted to disk after adding the new document.
+
+    Parameters
+    ----------
+    pmd: PaperMetadata
+        The metadata about the paper to be indexed, including file path, title,
+        authors, and categories.
+    file_locations: FileLocations, optional
+        Locations to read pdfs and save the index.
+
+    Returns
+    -------
+    Nothing
+
+    Raises
+    ------
+    IndexError
+        If the PDF cannot be loaded or no documents are found in the file.
+    """
+    global VECTOR_STORE
+    # 1. Initialize the global VECTOR_STORE if it's not already set.
+    if VECTOR_STORE is None:
+        print("VECTOR_STORE is not set. Initializing...")
+        
+        # Check if ChromaDB already exists
+        db_path = _get_chroma_db_path(file_locations)
+        if exists(db_path):
+            # If the database exists, load the existing index
+            print(f"Existing ChromaDB found at {db_path}. Loading into global variable.")
+            try:
+                VECTOR_STORE = _load_existing_chroma_vector_store(file_locations)
+            except Exception as e:
+                print(f"Error loading existing ChromaDB: {e}. Creating a new empty index instead.")
+                VECTOR_STORE = _initialize_chroma_vector_store(file_locations)
+        else:
+            # If the database does not exist, create a new instance
+            print("No existing ChromaDB found. Creating an empty global index.")
+            VECTOR_STORE = _initialize_chroma_vector_store(file_locations)
+    
+    # 2. Load the new PDF file using PyMuPDF4LLM reader.
+    local_pdf_path = pmd.get_local_pdf_path(file_locations)
+    try:
+        llama_reader = pymupdf4llm.LlamaMarkdownReader()
+        llama_docs = llama_reader.load_data(local_pdf_path)
+        
+        if not llama_docs:
+            raise IndexError(f"Warning: No document loaded from {local_pdf_path}. Skipping.")
+
+    except Exception as e:
+        raise IndexError(f"Error loading document from {local_pdf_path}: {e}") from e
+
+    # 3. Insert the new document into the global VECTOR_STORE.
+    # This automatically handles chunking and embedding.
+    print(f"Adding new document '{local_pdf_path}' with {len(llama_docs)} chunks to the index.")
+    for doc in llama_docs:
+        # we first add metadata properties to each chunk
+        filename = os.path.basename(local_pdf_path)
+        doc.metadata['file_path'] = 'pdfs/' + filename
+        doc.metadata['file_name'] = filename
+        doc.metadata['paper_id'] = pmd.paper_id
+        doc.metadata['title'] = pmd.title
+        doc.metadata['authors'] = ', '.join(pmd.authors)
+        doc.metadata['categories'] = ', '.join(pmd.categories)
+        # Add page_label if not present (use page number from metadata or default to 1)
+        if 'page_label' not in doc.metadata:
+            page_num = doc.metadata.get('page', 1)
+            doc.metadata['page_label'] = str(page_num)
+        VECTOR_STORE.insert(doc)
+
+    # 4. ChromaDB automatically persists changes, no need to manually save
+    print("Index updated successfully (ChromaDB auto-persists).")
+
+
+def index_file(pmd:PaperMetadata, file_locations:FileLocations=FILE_LOCATIONS) -> str:
+    """
+    Wrapper function to index a PDF file and return the extracted text.
+    
+    This function indexes the file using the PyMuPDF parser and then
+    returns the cached text content from parse_file for further processing.
+    
+    Parameters
+    ----------
+    pmd: PaperMetadata
+        The metadata about the paper to be indexed
+    file_locations: FileLocations, optional
+        Locations to read pdfs and save the index
+        
+    Returns
+    -------
+    str
+        The extracted paper text content
+    """
+    # Index the file using the PyMuPDF parser
+    index_file_using_pymupdf_parser(pmd, file_locations)
+    
+    # Get the cached text content using parse_file (avoids re-parsing)
+    paper_text = parse_file(pmd, file_locations)
+    return paper_text
+
 
 def search_index(query:str, k:int=5, file_locations:FileLocations=FILE_LOCATIONS) \
     -> list[SearchResult]:
