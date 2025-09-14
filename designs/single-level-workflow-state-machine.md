@@ -1,87 +1,19 @@
-# Plan
+---
+status: abandoned
+---
+# Single level workflow state machine
+This is a design of a workflow that is controlled through a single
+state machine. The goal is to make it clear what commands can be
+run in each state of the user's conversation, preserving invariants
+like:
+1. A user has to select a paper before performing certain commands
+   (e.g. adding to the collection, viewing, or viewing its summary).
+2. When we add a paper to the collection (starting with the `find` command),
+   we take the user through the process of adding a summary. They can abandon
+   that only through the explicit `abandon` command.
+3. It should be clear when a user is switching to another sub-workflow
 
-This is the development plan for the project.
-The overall objective is to build a chatbot agent that can aid in keeping up with the
-latest research in generative AI, as published on arxiv.org. The interface
-to the agent is a command line shell, using the `rich` python library for formatting.
-
-## User stories
-These are the high level operations for the agent.
-
-1. Find, download, index, and summarize papers from Arxiv.
-   * The papers are found using a simple keyword search, with refinement from the user. When
-     a paper has been downloaded, it is chunked and indexed for later semantic searches and
-     deep research.
-   * Summaries are created using a specific prompt and can be optionally refined from the user.
-   * Optionally, the user can add their own notes for a paper.
-   * The summaries and notes are indexed for use in deep research.
-2. View the content of the repository
-   * List the set of papers that have been indexed.
-   * View individual papers and summaries
-3. Semantic search over the papers, with summarized answers and references to specific paper pages.
-   * This uses the index chunks and metadata.
-4. Deep research over the papers
-   * Use semantic search over the summaries to obtain high level information
-   * Detailed analysis uses semantic search over the document chunks.
-5. Maintenance of the paper repository
-   * Can re-index entire repository
-   * Can selectively re-index and or re-summarize individual papers on demand
-   * Pdfs, extracted text, and summaries are kept and reused across requests. If missing, they will be
-     re-generated on demand.
-
-## Paper states
-Papers are uniquely identified by their Arxiv ids. A paper can have the following state associated with
-it:
-
-1. Paper metadata - obtained from Arxiv using `get_paper_metadata()`
-2. Downloaded pdf - downloaded full text of the paper in pdf format
-3. Extracted markdown - markdown extracted by parsing the pdf
-4. Content index - semantic search index created from paper content, using
-   parsing, chunking, and embedding
-5. Summary - markdown summary of the paper, created by an LLM
-6. Notes - human-provided notes about the paper, highlighting key points of interest. In markdown format.
-7. Summary index - semantic search index created from summaries and notes, using chunking and embedding
-
-
-## Storage
-The files are stored under the directory identified by the environment variable `$DOC_HOME`. These
-contain most of the state described in the previous section (except for the paper metadata). The
-key directories under `$DOC_HOME` are as follows:
-
-```
-$DOC_HOME
-     |
-     |---- pdfs/                 - downloads of the full papers, in pdf format. Filenames have the
-     |                             form PAPER_ID.pdf.
-     |
-     |---- extracted_paper_text/ - this is the where markdown extracted from the pdfs is stored
-     |                             Filenames have the form PAPER_ID.md.
-     |
-     |---- index/                - semantic search index created by LlamaIndex
-     |
-     |
-     |---- summaries/            - llm-generated summaries of the papers. Filenames have the form
-     |                             PAPER_NAME.md.
-     |
-     |---- notes/                - human-generated notes (not yet implemented)
-     |
-     |---- results/              - saved results from semantic searches and deep research
-```
-
-## Development plan
-
-1. [x] Create the basic chatbot
-2. [x] Review workflow.py and refactor it to make it clearer
-3. [ ] Refactor the chatbot commands with a state machine to control the workflow
-4. [ ] Add view summary command (use cae 2)
-5. [ ] Finish the RAG command (use case 3)
-6. [ ] Implement deep research (use case 4)
-7. [ ] Add any commands needed to finish use case 5 (maintenance)
-8. [ ] Add intent detection in front of the commands, so that user can just provide natural text queries
-
-## Specific tasks
-
-### Chatbot command refactor and workflow states
+## Commands
 The current commands are:
 
 - find <query> - Find papers on ArXiv to download
@@ -115,6 +47,7 @@ We want to refactor to the following set of commands:
 - clear - Clear conversation history
 - quit or exit - Exit the chat
 
+## State variables
 There are three main "state variables" in the workflow that, in addition ot the state value,
 help to keep track of information across commands:
 
@@ -125,50 +58,56 @@ help to keep track of information across commands:
 - `draft` - markdown representing an in-progress draft of a paper summary, a semantic search,
   or a deep research query.
 
+## States
+### State descriptions
 Here is a table listing the states of the workflow, the expected values of state variables when
 entering those states, and a description of the state:
 
 ```table
-| state      | state variable values      | description                                            |
-|------------|----------------------------|--------------------------------------------------------|
-| initial    | last_query_set=[]          | The workflow begins in this state.                     |
-|            | selected_paper=None        |                                                        |
-|            | draft=None                 |                                                        |
-|------------|----------------------------|--------------------------------------------------------|
-| select     | last_query_set=[P1,P2,...] | User ran a find command and a list of papers was       |
-|            | selected_paper=None        | returned. The user can now select one for downloading. |
-|            | draft=None                 |                                                        |
-|------------|----------------------------|--------------------------------------------------------|
-| draft      | last_query_set=[]          | User selected a paper to download. It was downloaded,  |
-| summary    | selected_paper=Pn          | indexed, and summarized. They can review the summary   |
-|            | draft="..."                | improve it, save it, or abandon it.                    |
-|------------|----------------------------|--------------------------------------------------------|
-| summarized | last_query_set=[]          | A paper has been summarized and saved. The user can    |
-|            | selected_paper=Pn          | do more with this paper or start another query.        |
-|            | draft="..."                |                                                        |
-|------------|----------------------------|--------------------------------------------------------|
-| draft      | last_query_set=[P1,P2,...] | User ran a semantic search, which returned a summary   |
-| sem-search | selected_paper=None        | and a list of papers. They can improve the results,    |
-|            | draft="..."                | save the results, or select a paper.                   |
-|------------|----------------------------|--------------------------------------------------------|
-| draft      | last_query_set=[P1,P2,...] | User ran a deep research query, which returns a report |
-| research   | selected_paper=None        | and a list of papers. They can improve the results,    |
-|            | draft="..."                | save the results, or select a paper.                   |
-|------------|----------------------------|--------------------------------------------------------|
+| state       | state variable values      | description                                            |
+|-------------|----------------------------|--------------------------------------------------------|
+| initial     | last_query_set=[]          | The workflow begins in this state.                     |
+|             | selected_paper=None        |                                                        |
+|             | draft=None                 |                                                        |
+|-------------|----------------------------|--------------------------------------------------------|
+| select-new  | last_query_set=[P1,P2,...] | User ran a find command and a list of papers was       |
+|             | selected_paper=None        | returned. The user can now select one for downloading. |
+|             | draft=None                 |                                                        |
+|-------------|----------------------------|--------------------------------------------------------|
+| select-view | last_query_set=[]          | The user ran a list command, which returns papers from |
+|             | selected_paper=Pn          | from the store without creating any kind of draft.     |
+|             | draft=None                 |                                                        |
+|-------------|----------------------------|--------------------------------------------------------|
+| draft       | last_query_set=[]          | User selected a paper to download. It was downloaded,  |
+| summary     | selected_paper=Pn          | indexed, and summarized. They can review the summary   |
+|             | draft="..."                | improve it, save it, or abandon it.                    |
+|-------------|----------------------------|--------------------------------------------------------|
+| summarized  | last_query_set=[]          | A paper has been summarized and saved. The user can    |
+|             | selected_paper=Pn          | do more with this paper or start another query.        |
+|             | draft="..."                |                                                        |
+|-------------|----------------------------|--------------------------------------------------------|
+| draft       | last_query_set=[P1,P2,...] | User ran a semantic search, which returned a summary   |
+| sem-search  | selected_paper=None        | and a list of papers. They can improve the results,    |
+|             | draft="..."                | save the results, or select a paper.                   |
+|-------------|----------------------------|--------------------------------------------------------|
+| draft       | last_query_set=[P1,P2,...] | User ran a deep research query, which returns a report |
+| research    | selected_paper=None        | and a list of papers. They can improve the results,    |
+|             | draft="..."                | save the results, or select a paper.                   |
+|-------------|----------------------------|--------------------------------------------------------|
 ```
 
-
+### State transitions
 Here is a table showing each command, the valid start states for that command, the actions taken on
 the state variables by the command, and the next state(s).
 
 ```table
 | command            | start state(s)    | actions                    | next state(s)           |
+|--------------------|-------------------|----------------------------|------------------- -----|
+| find <query>       | ANY, except for   | last_query_set=[P1,P2,...] | select-new,             |
+|                    | draft summary     | selected_paper=None        |  if papers found        |
+|                    |                   | draft=None                 | initial, otherwise      |
 |--------------------|-------------------|----------------------------|-------------------------|
-| find <query>       | ANY, except for   | last_query_set=[P1,P2,...] | select, if papers found |
-|                    | draft summary     | selected_paper=None        | initial, otherwise      |
-|                    |                   | draft=None                 |                         |
-|--------------------|-------------------|----------------------------|-------------------------|
-| summarize <number> | select            | last_query_set=[]          | draft summary           |
+| summarize <number> | select-new        | last_query_set=[]          | draft summary           |
 |                    |                   | selected_paper=Pn          |                         |
 |                    |                   | draft="..."                |                         |
 |--------------------|-------------------|----------------------------|-------------------------|
@@ -220,9 +159,10 @@ the state variables by the command, and the next state(s).
 |                    |       or          | selected_paper=None        |                         |
 |                    | draft research    | draft="..."                |                         |
 |--------------------|-------------------|----------------------------|-------------------------|
-| list               | ANY, except for   | last_query_set=[P1,P2...]  |   ?                     | 
+| list               | ANY, except for   | last_query_set=[P1,P2...]  | select-view             | 
 |                    | draft summary     | selected_paper=None        |                         |
-|                    | draft research    | draft="..."                |                         |
+|                    | draft research    | draft=None                 |                         |
 |--------------------|-------------------|----------------------------|-------------------------|
 
+|--------------------|-------------------|----------------------------|-------------------------|
 ```
