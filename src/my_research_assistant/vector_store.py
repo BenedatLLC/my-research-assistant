@@ -13,10 +13,12 @@ from .file_locations import FILE_LOCATIONS, FileLocations
 from .project_types import PaperMetadata, SearchResult
 from .arxiv_downloader import get_downloaded_paper_ids, get_paper_metadata
 
-# Initialize a global variable to hold the VectorStoreIndex object.
-# This allows us to maintain the state of the index across multiple calls
-# without having to reload it from disk every time.
-VECTOR_STORE = None
+# Initialize global variables to hold the VectorStoreIndex objects.
+# We maintain separate indexes for content (paper text) and summaries/notes.
+# This allows us to maintain the state of the indexes across multiple calls
+# without having to reload them from disk every time.
+CONTENT_INDEX = None
+SUMMARY_INDEX = None
 
 class IndexError(Exception):
     pass
@@ -25,22 +27,54 @@ class RetrievalError(Exception):
     pass
 
 
-def _get_chroma_db_path(file_locations: FileLocations) -> str:
-    """Get the ChromaDB database path for the given file locations."""
-    return join(file_locations.index_dir, "chroma_db")
+def _get_chroma_db_path(file_locations: FileLocations, index_type: str = "content") -> str:
+    """Get the ChromaDB database path for the given file locations and index type.
+    
+    Parameters
+    ----------
+    file_locations : FileLocations
+        The file locations configuration
+    index_type : str
+        Either "content" for paper content index or "summary" for summary/notes index
+        
+    Returns
+    -------
+    str
+        Path to the ChromaDB directory for the specified index type
+    """
+    if index_type == "content":
+        return join(file_locations.index_dir, "content_chroma_db")
+    elif index_type == "summary":
+        return join(file_locations.index_dir, "summary_chroma_db")
+    else:
+        raise ValueError(f"Invalid index_type: {index_type}. Must be 'content' or 'summary'")
 
 
-def _initialize_chroma_vector_store(file_locations: FileLocations) -> VectorStoreIndex:
-    """Initialize a new ChromaDB vector store."""
+def _initialize_chroma_vector_store(file_locations: FileLocations, index_type: str = "content") -> VectorStoreIndex:
+    """Initialize a new ChromaDB vector store for the specified index type.
+    
+    Parameters
+    ----------
+    file_locations : FileLocations
+        The file locations configuration
+    index_type : str
+        Either "content" for paper content index or "summary" for summary/notes index
+        
+    Returns
+    -------
+    VectorStoreIndex
+        A new LlamaIndex vector store backed by ChromaDB
+    """
     # Ensure the index directory exists
     file_locations.ensure_index_dir()
     
     # Initialize ChromaDB client with persistent storage
-    db_path = _get_chroma_db_path(file_locations)
+    db_path = _get_chroma_db_path(file_locations, index_type)
     chroma_client = chromadb.PersistentClient(path=db_path)
     
-    # Get or create a collection for our papers
-    collection = chroma_client.get_or_create_collection("research_papers")
+    # Get or create a collection based on index type
+    collection_name = f"{index_type}_index"
+    collection = chroma_client.get_or_create_collection(collection_name)
     
     # Create ChromaVectorStore
     vector_store = ChromaVectorStore(chroma_collection=collection)
@@ -52,9 +86,27 @@ def _initialize_chroma_vector_store(file_locations: FileLocations) -> VectorStor
     return VectorStoreIndex([], storage_context=storage_context)
 
 
-def _load_existing_chroma_vector_store(file_locations: FileLocations) -> VectorStoreIndex:
-    """Load an existing ChromaDB vector store."""
-    db_path = _get_chroma_db_path(file_locations)
+def _load_existing_chroma_vector_store(file_locations: FileLocations, index_type: str = "content") -> VectorStoreIndex:
+    """Load an existing ChromaDB vector store for the specified index type.
+    
+    Parameters
+    ----------
+    file_locations : FileLocations
+        The file locations configuration
+    index_type : str
+        Either "content" for paper content index or "summary" for summary/notes index
+        
+    Returns
+    -------
+    VectorStoreIndex
+        The loaded LlamaIndex vector store
+        
+    Raises
+    ------
+    IndexError
+        If the database path or collection doesn't exist
+    """
+    db_path = _get_chroma_db_path(file_locations, index_type)
     
     if not exists(db_path):
         raise IndexError(f"ChromaDB path {db_path} does not exist")
@@ -63,10 +115,11 @@ def _load_existing_chroma_vector_store(file_locations: FileLocations) -> VectorS
     chroma_client = chromadb.PersistentClient(path=db_path)
     
     # Get the existing collection
+    collection_name = f"{index_type}_index"
     try:
-        collection = chroma_client.get_collection("research_papers")
+        collection = chroma_client.get_collection(collection_name)
     except Exception as e:
-        raise IndexError(f"Collection 'research_papers' not found: {e}")
+        raise IndexError(f"Collection '{collection_name}' not found: {e}")
     
     # Create ChromaVectorStore
     vector_store = ChromaVectorStore(chroma_collection=collection)
@@ -76,6 +129,144 @@ def _load_existing_chroma_vector_store(file_locations: FileLocations) -> VectorS
     
     # Create and return the index
     return VectorStoreIndex([], storage_context=storage_context)
+
+
+def _get_or_initialize_index(file_locations: FileLocations, index_type: str = "content") -> VectorStoreIndex:
+    """Get or initialize a vector store index for the specified type.
+    
+    Parameters
+    ----------
+    file_locations : FileLocations
+        The file locations configuration
+    index_type : str
+        Either "content" for paper content index or "summary" for summary/notes index
+        
+    Returns
+    -------
+    VectorStoreIndex
+        The vector store index, either loaded from disk or newly created
+    """
+    global CONTENT_INDEX, SUMMARY_INDEX
+    
+    # Select the appropriate global variable
+    if index_type == "content":
+        current_index = CONTENT_INDEX
+    elif index_type == "summary":
+        current_index = SUMMARY_INDEX
+    else:
+        raise ValueError(f"Invalid index_type: {index_type}")
+    
+    # Initialize if not already set
+    if current_index is None:
+        print(f"{index_type.upper()}_INDEX is not set. Initializing...")
+        
+        # Check if ChromaDB already exists
+        db_path = _get_chroma_db_path(file_locations, index_type)
+        if exists(db_path):
+            # If the database exists, load the existing index
+            print(f"Existing {index_type} ChromaDB found at {db_path}. Loading into global variable.")
+            try:
+                current_index = _load_existing_chroma_vector_store(file_locations, index_type)
+            except Exception as e:
+                print(f"Error loading existing {index_type} ChromaDB: {e}. Creating a new empty index instead.")
+                current_index = _initialize_chroma_vector_store(file_locations, index_type)
+        else:
+            # If the database does not exist, create a new instance
+            print(f"No existing {index_type} ChromaDB found. Creating an empty global index.")
+            current_index = _initialize_chroma_vector_store(file_locations, index_type)
+        
+        # Update the appropriate global variable
+        if index_type == "content":
+            CONTENT_INDEX = current_index
+        else:
+            SUMMARY_INDEX = current_index
+    
+    return current_index
+
+
+def _paper_already_indexed(paper_id: str, index: VectorStoreIndex) -> bool:
+    """Check if a paper is already indexed by searching for documents with the paper_id.
+    
+    Parameters
+    ----------
+    paper_id : str
+        The paper ID to check for
+    index : VectorStoreIndex
+        The vector store index to search in
+        
+    Returns
+    -------
+    bool
+        True if the paper is already indexed, False otherwise
+    """
+    try:
+        # Use the retriever to search for any documents
+        # We'll search for a generic term and check metadata
+        retriever = index.as_retriever(similarity_top_k=20)
+        results = retriever.retrieve("the")  # Search for common word
+        
+        # Check if any results have the matching paper_id in metadata
+        for result in results:
+            if hasattr(result, 'metadata') and result.metadata.get('paper_id') == paper_id:
+                return True
+        
+        # If no results or no matches, try searching for the paper_id directly
+        if not results:
+            results = retriever.retrieve(paper_id)
+            for result in results:
+                if hasattr(result, 'metadata') and result.metadata.get('paper_id') == paper_id:
+                    return True
+                    
+        return False
+    except Exception:
+        # If there's an error searching, assume not indexed to be safe
+        return False
+
+
+def _add_document_to_index(doc: Document, pmd: PaperMetadata, index: VectorStoreIndex, index_type: str = "content"):
+    """Add a document to the specified index with appropriate metadata.
+    
+    Parameters
+    ----------
+    doc : Document
+        The LlamaIndex document to add
+    pmd : PaperMetadata
+        The paper metadata for adding to document metadata
+    index : VectorStoreIndex
+        The index to add the document to
+    index_type : str
+        Either "content" or "summary" to determine appropriate metadata
+    """
+    # Add common metadata
+    doc.metadata['paper_id'] = pmd.paper_id
+    doc.metadata['title'] = pmd.title
+    doc.metadata['authors'] = ', '.join(pmd.authors)
+    doc.metadata['categories'] = ', '.join(pmd.categories)
+    
+    # Add type-specific metadata
+    if index_type == "content":
+        # For content index, add file path information
+        if 'file_name' not in doc.metadata:
+            filename = f"{pmd.paper_id}.pdf"
+            doc.metadata['file_name'] = filename
+        doc.metadata['file_path'] = 'pdfs/' + doc.metadata['file_name']
+        
+        # Add page_label if not present (use page number from metadata or default to 1)
+        if 'page_label' not in doc.metadata:
+            page_num = doc.metadata.get('page', 1)
+            doc.metadata['page_label'] = str(page_num)
+    elif index_type == "summary":
+        # For summary index, add source type
+        doc.metadata['source_type'] = doc.metadata.get('source_type', 'summary')
+        # Add file path for summary/notes
+        source_type = doc.metadata.get('source_type', 'summary')
+        if source_type == 'summary':
+            doc.metadata['file_path'] = f'summaries/{pmd.paper_id}.md'
+        elif source_type == 'notes':
+            doc.metadata['file_path'] = f'notes/{pmd.paper_id}.md'
+    
+    # Insert the document
+    index.insert(doc)
 
 
 def parse_file(pmd:PaperMetadata, file_locations:FileLocations=FILE_LOCATIONS) -> str:
@@ -127,88 +318,15 @@ def parse_file(pmd:PaperMetadata, file_locations:FileLocations=FILE_LOCATIONS) -
     return paper_text
 
 
-def index_file_using_llama_index_parser(pmd:PaperMetadata, file_locations:FileLocations=FILE_LOCATIONS) -> None:
-    """
-    Parses, chunks, and indexes a single PDF file, then saves the index to a specified path.
-    
-    The function loads a PDF document, adds metadata (title, authors, categories), 
-    and inserts it into a global VectorStoreIndex. The index is automatically 
-    persisted to disk after adding the new document.
-
-    Parameters
-    ----------
-    pmd: PaperMetadata
-        The metadata about the paper to be indexed, including file path, title,
-        authors, and categories.
-    file_locations: FileLocations, optional
-        Locations to read pdfs and save the index.
-
-    Returns
-    -------
-    Nothing
-
-    Raises
-    ------
-    IndexError
-        If the PDF cannot be loaded or no documents are found in the file.
-    """
-    global VECTOR_STORE
-    # 1. Initialize the global VECTOR_STORE if it's not already set.
-    if VECTOR_STORE is None:
-        print("VECTOR_STORE is not set. Initializing...")
-        
-        # Check if ChromaDB already exists
-        db_path = _get_chroma_db_path(file_locations)
-        if exists(db_path):
-            # If the database exists, load the existing index
-            print(f"Existing ChromaDB found at {db_path}. Loading into global variable.")
-            try:
-                VECTOR_STORE = _load_existing_chroma_vector_store(file_locations)
-            except Exception as e:
-                print(f"Error loading existing ChromaDB: {e}. Creating a new empty index instead.")
-                VECTOR_STORE = _initialize_chroma_vector_store(file_locations)
-        else:
-            # If the database does not exist, create a new instance
-            print("No existing ChromaDB found. Creating an empty global index.")
-            VECTOR_STORE = _initialize_chroma_vector_store(file_locations)
-    
-    # 2. Load the new PDF file as a Document.
-    local_pdf_path = pmd.get_local_pdf_path(file_locations)
-    try:
-        reader = SimpleDirectoryReader(input_files=[local_pdf_path])
-        documents = reader.load_data()
-        
-        if not documents:
-            raise IndexError(f"Warning: No document loaded from {local_pdf_path}. Skipping.")
-
-    except Exception as e:
-        raise IndexError(f"Error loading document from {local_pdf_path}: {e}") from e
-
-    # 3. Insert the new document into the global VECTOR_STORE.
-    # This automatically handles chunking and embedding.
-    print(f"Adding new document '{local_pdf_path}' with {len(documents)} chunks to the index.")
-    for doc in documents:
-        # we first add metadata properties to each chunk
-        doc.metadata['file_path'] = 'pdfs/' + doc.metadata['file_name']
-        doc.metadata['paper_id'] = pmd.paper_id
-        doc.metadata['title'] = pmd.title
-        doc.metadata['authors'] = ', '.join(pmd.authors)
-        doc.metadata['categories'] = ', '.join(pmd.categories)
-        VECTOR_STORE.insert(doc)
-
-    # 4. ChromaDB automatically persists changes, no need to manually save
-    print("Index updated successfully (ChromaDB auto-persists).")
-
 
 def index_file_using_pymupdf_parser(pmd:PaperMetadata, file_locations:FileLocations=FILE_LOCATIONS) -> None:
     """
-    Parses, chunks, and indexes a single PDF file using PyMuPDF4LLM parser, then saves the index.
+    Parses, chunks, and indexes a single PDF file using PyMuPDF4LLM parser in an idempotent manner.
     
-    This function is similar to index_file_using_llama_index_parser but uses PyMuPDF4LLM's
-    LlamaMarkdownReader to create document chunks. The function loads a PDF document, 
-    creates chunks using PyMuPDF4LLM, adds metadata (title, authors, categories), 
-    and inserts it into a global VectorStoreIndex. The index is automatically 
-    persisted to disk after adding the new document.
+    This function loads a PDF document, creates chunks using PyMuPDF4LLM, adds metadata 
+    (title, authors, categories), and inserts it into the content index. The function is 
+    idempotent - if the paper is already indexed, it will skip indexing and return early.
+    The index is automatically persisted to disk after adding the new document.
 
     Parameters
     ----------
@@ -227,27 +345,15 @@ def index_file_using_pymupdf_parser(pmd:PaperMetadata, file_locations:FileLocati
     IndexError
         If the PDF cannot be loaded or no documents are found in the file.
     """
-    global VECTOR_STORE
-    # 1. Initialize the global VECTOR_STORE if it's not already set.
-    if VECTOR_STORE is None:
-        print("VECTOR_STORE is not set. Initializing...")
-        
-        # Check if ChromaDB already exists
-        db_path = _get_chroma_db_path(file_locations)
-        if exists(db_path):
-            # If the database exists, load the existing index
-            print(f"Existing ChromaDB found at {db_path}. Loading into global variable.")
-            try:
-                VECTOR_STORE = _load_existing_chroma_vector_store(file_locations)
-            except Exception as e:
-                print(f"Error loading existing ChromaDB: {e}. Creating a new empty index instead.")
-                VECTOR_STORE = _initialize_chroma_vector_store(file_locations)
-        else:
-            # If the database does not exist, create a new instance
-            print("No existing ChromaDB found. Creating an empty global index.")
-            VECTOR_STORE = _initialize_chroma_vector_store(file_locations)
+    # 1. Get or initialize the content index
+    content_index = _get_or_initialize_index(file_locations, "content")
     
-    # 2. Load the new PDF file using PyMuPDF4LLM reader.
+    # 2. Check if paper is already indexed (idempotency check)
+    if _paper_already_indexed(pmd.paper_id, content_index):
+        print(f"Paper {pmd.paper_id} is already indexed. Skipping.")
+        return
+    
+    # 3. Load the new PDF file using PyMuPDF4LLM reader.
     local_pdf_path = pmd.get_local_pdf_path(file_locations)
     try:
         llama_reader = pymupdf4llm.LlamaMarkdownReader()
@@ -259,26 +365,13 @@ def index_file_using_pymupdf_parser(pmd:PaperMetadata, file_locations:FileLocati
     except Exception as e:
         raise IndexError(f"Error loading document from {local_pdf_path}: {e}") from e
 
-    # 3. Insert the new document into the global VECTOR_STORE.
-    # This automatically handles chunking and embedding.
-    print(f"Adding new document '{local_pdf_path}' with {len(llama_docs)} chunks to the index.")
+    # 4. Insert the new document into the content index.
+    print(f"Adding new document '{local_pdf_path}' with {len(llama_docs)} chunks to the content index.")
     for doc in llama_docs:
-        # we first add metadata properties to each chunk
-        filename = os.path.basename(local_pdf_path)
-        doc.metadata['file_path'] = 'pdfs/' + filename
-        doc.metadata['file_name'] = filename
-        doc.metadata['paper_id'] = pmd.paper_id
-        doc.metadata['title'] = pmd.title
-        doc.metadata['authors'] = ', '.join(pmd.authors)
-        doc.metadata['categories'] = ', '.join(pmd.categories)
-        # Add page_label if not present (use page number from metadata or default to 1)
-        if 'page_label' not in doc.metadata:
-            page_num = doc.metadata.get('page', 1)
-            doc.metadata['page_label'] = str(page_num)
-        VECTOR_STORE.insert(doc)
+        _add_document_to_index(doc, pmd, content_index, "content")
 
-    # 4. ChromaDB automatically persists changes, no need to manually save
-    print("Index updated successfully (ChromaDB auto-persists).")
+    # 5. ChromaDB automatically persists changes, no need to manually save
+    print("Content index updated successfully (ChromaDB auto-persists).")
 
 
 def index_file(pmd:PaperMetadata, file_locations:FileLocations=FILE_LOCATIONS) -> str:
@@ -308,24 +401,177 @@ def index_file(pmd:PaperMetadata, file_locations:FileLocations=FILE_LOCATIONS) -
     return paper_text
 
 
+def index_summary(pmd: PaperMetadata, file_locations: FileLocations = FILE_LOCATIONS) -> None:
+    """
+    Index a paper's summary in an idempotent manner.
+    
+    This function loads a paper's summary markdown file, chunks it, and adds it to the 
+    summary index. The function is idempotent - if the paper's summary is already indexed, 
+    it will skip indexing and return early.
+
+    Parameters
+    ----------
+    pmd: PaperMetadata
+        The metadata about the paper whose summary should be indexed
+    file_locations: FileLocations, optional
+        Locations to read summaries and save the index
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    IndexError
+        If the summary file cannot be found or loaded
+    """
+    # 1. Get or initialize the summary index
+    summary_index = _get_or_initialize_index(file_locations, "summary")
+    
+    # 2. Check if paper summary is already indexed (idempotency check)
+    if _paper_already_indexed(pmd.paper_id, summary_index):
+        print(f"Summary for paper {pmd.paper_id} is already indexed. Skipping.")
+        return
+    
+    # 3. Check if summary file exists
+    file_locations.ensure_summaries_dir()
+    summary_path = join(file_locations.summaries_dir, f"{pmd.paper_id}.md")
+    
+    if not exists(summary_path):
+        raise IndexError(f"Summary file not found: {summary_path}")
+    
+    # 4. Load the summary as a document
+    try:
+        reader = SimpleDirectoryReader(input_files=[summary_path])
+        documents = reader.load_data()
+        
+        if not documents:
+            raise IndexError(f"No content loaded from summary file: {summary_path}")
+    except Exception as e:
+        raise IndexError(f"Error loading summary from {summary_path}: {e}") from e
+    
+    # 5. Add documents to the summary index
+    print(f"Adding summary for paper {pmd.paper_id} with {len(documents)} chunks to the summary index.")
+    for doc in documents:
+        doc.metadata['source_type'] = 'summary'
+        _add_document_to_index(doc, pmd, summary_index, "summary")
+    
+    print("Summary index updated successfully (ChromaDB auto-persists).")
+
+
+def index_notes(pmd: PaperMetadata, file_locations: FileLocations = FILE_LOCATIONS) -> None:
+    """
+    Index a paper's notes in an idempotent manner.
+    
+    This function loads a paper's notes markdown file, chunks it, and adds it to the 
+    summary index. The function is idempotent - if the paper's notes are already indexed, 
+    it will skip indexing and return early.
+
+    Parameters
+    ----------
+    pmd: PaperMetadata
+        The metadata about the paper whose notes should be indexed
+    file_locations: FileLocations, optional
+        Locations to read notes and save the index
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    IndexError
+        If the notes file cannot be found or loaded
+    """
+    # 1. Get or initialize the summary index (notes go in the same index as summaries)
+    summary_index = _get_or_initialize_index(file_locations, "summary")
+    
+    # 2. For notes, we check if they're already indexed by looking for notes-specific metadata
+    # This is different from summary checking since both can exist for the same paper
+    try:
+        retriever = summary_index.as_retriever(similarity_top_k=10)
+        results = retriever.retrieve(f"paper_id:{pmd.paper_id}")
+        
+        # Check if any results have notes source_type for this paper
+        notes_already_indexed = False
+        for result in results:
+            if (hasattr(result, 'metadata') and 
+                result.metadata.get('paper_id') == pmd.paper_id and
+                result.metadata.get('source_type') == 'notes'):
+                notes_already_indexed = True
+                break
+        
+        if notes_already_indexed:
+            print(f"Notes for paper {pmd.paper_id} are already indexed. Skipping.")
+            return
+            
+    except Exception:
+        # If there's an error searching, proceed with indexing to be safe
+        pass
+    
+    # 3. Check if notes file exists
+    file_locations.ensure_notes_dir()
+    notes_path = join(file_locations.notes_dir, f"{pmd.paper_id}.md")
+    
+    if not exists(notes_path):
+        raise IndexError(f"Notes file not found: {notes_path}")
+    
+    # 4. Load the notes as a document
+    try:
+        reader = SimpleDirectoryReader(input_files=[notes_path])
+        documents = reader.load_data()
+        
+        if not documents:
+            raise IndexError(f"No content loaded from notes file: {notes_path}")
+    except Exception as e:
+        raise IndexError(f"Error loading notes from {notes_path}: {e}") from e
+    
+    # 5. Add documents to the summary index
+    print(f"Adding notes for paper {pmd.paper_id} with {len(documents)} chunks to the summary index.")
+    for doc in documents:
+        doc.metadata['source_type'] = 'notes'
+        _add_document_to_index(doc, pmd, summary_index, "summary")
+    
+    print("Summary index updated successfully with notes (ChromaDB auto-persists).")
+
+
 def search_index(query:str, k:int=5, file_locations:FileLocations=FILE_LOCATIONS) \
     -> list[SearchResult]:
-    # first, load the vector store into memory, if needed
-    global VECTOR_STORE
-    # 1. Initialize the global VECTOR_STORE if it's not already set.
-    if VECTOR_STORE is None:
-        # Check if ChromaDB exists
-        db_path = _get_chroma_db_path(file_locations)
-        if exists(db_path):
-            # If the database exists, load the existing index
-            try:
-                VECTOR_STORE = _load_existing_chroma_vector_store(file_locations)
-            except Exception as e:
-                raise IndexError(f"Error loading existing ChromaDB: {e}.")
-        else:
-            raise IndexError(f"No existing ChromaDB found at {db_path}.")
-    # now run the query
-    retriever = VECTOR_STORE.as_retriever(similarity_top_k=k)
+    """
+    Search the content index for papers matching the query.
+    
+    This function searches through the content index (PDF documents) for chunks matching
+    the query and returns structured SearchResult objects.
+    
+    Parameters
+    ----------
+    query : str
+        The search query
+    k : int, optional
+        Maximum number of results to return (default: 5)
+    file_locations : FileLocations, optional
+        File locations configuration
+        
+    Returns
+    -------
+    list[SearchResult]
+        List of search results from the content index
+        
+    Raises
+    ------
+    IndexError
+        If the content index cannot be loaded
+    RetrievalError
+        If there's an error processing search results
+    """
+    # Get the content index
+    try:
+        content_index = _get_or_initialize_index(file_locations, "content")
+    except Exception as e:
+        raise IndexError(f"Error loading content index: {e}")
+    
+    # Run the query
+    retriever = content_index.as_retriever(similarity_top_k=k)
     chunks = retriever.retrieve(query)
     results = []
     for chunk in chunks:
@@ -348,39 +594,103 @@ def search_index(query:str, k:int=5, file_locations:FileLocations=FILE_LOCATIONS
     return results
 
 
+def search_summary_index(query:str, k:int=5, file_locations:FileLocations=FILE_LOCATIONS) \
+    -> list[SearchResult]:
+    """
+    Search the summary index for papers matching the query.
+    
+    This function searches through the summary index (summaries and notes) for chunks matching
+    the query and returns structured SearchResult objects.
+    
+    Parameters
+    ----------
+    query : str
+        The search query
+    k : int, optional
+        Maximum number of results to return (default: 5)
+    file_locations : FileLocations, optional
+        File locations configuration
+        
+    Returns
+    -------
+    list[SearchResult]
+        List of search results from the summary index
+        
+    Raises
+    ------
+    IndexError
+        If the summary index cannot be loaded
+    RetrievalError
+        If there's an error processing search results
+    """
+    # Get the summary index
+    try:
+        summary_index = _get_or_initialize_index(file_locations, "summary")
+    except Exception as e:
+        raise IndexError(f"Error loading summary index: {e}")
+    
+    # Run the query
+    retriever = summary_index.as_retriever(similarity_top_k=k)
+    chunks = retriever.retrieve(query)
+    results = []
+    for chunk in chunks:
+        try:
+            paper_id = chunk.metadata['paper_id']
+            summary_filename = paper_id + '.md'
+            
+            # For summary index results, we don't have page numbers
+            # Instead, we use the source type to indicate what was matched
+            source_type = chunk.metadata.get('source_type', 'summary')
+            
+            results.append(SearchResult(
+                paper_id=paper_id,
+                pdf_filename = f"{paper_id}.pdf",  # Construct PDF filename
+                summary_filename = summary_filename
+                                   if exists(join(file_locations.summaries_dir,
+                                             summary_filename))
+                                   else None,
+                paper_title = chunk.metadata['title'],
+                page=1,  # Summary/notes don't have page numbers
+                chunk=f"[{source_type.upper()}] {chunk.text}"  # Prefix with source type
+            ))
+        except Exception as e:
+            raise RetrievalError(f"Got an error processing chunk with metadata {chunk.metadata}") from e
+    return results
+
+
 
 def rebuild_index(file_locations:FileLocations=FILE_LOCATIONS):
     """Reindex all the pdf files that we have downloaded.
 
-    First, clears the existing ChromaDB collection or creates a new one. Then, gets the list
-    of downloaded papers and finds the metadata for each paper (added to
-    the metadata for each chunk). Next, each file is chunked and added
-    to the ChromaDB vector store. ChromaDB automatically persists the changes."""
-    global VECTOR_STORE
+    This function clears the existing content index and rebuilds it from scratch using
+    all downloaded PDFs. It uses the idempotent indexing functions but bypasses the
+    idempotency check by clearing the index first."""
+    global CONTENT_INDEX
     
-    # Reset the global VECTOR_STORE first to release any existing connections
-    VECTOR_STORE = None
+    # Reset the global indexes first to release any existing connections
+    CONTENT_INDEX = None
     
     # Get list of papers first (before we mess with the database)
     paper_ids = get_downloaded_paper_ids(file_locations)
-    print(f"Found {len(paper_ids)} downloaded papers. Indexing...")
+    print(f"Found {len(paper_ids)} downloaded papers. Rebuilding content index...")
     
-    # Clear the existing ChromaDB by removing the entire directory
+    # Clear the existing content ChromaDB by removing the entire directory
     # This avoids locking issues with trying to delete collections
-    db_path = _get_chroma_db_path(file_locations)
-    if exists(db_path):
-        print("Clearing old ChromaDB...")
-        rmtree(db_path)
-        print("Removed ChromaDB directory")
+    content_db_path = _get_chroma_db_path(file_locations, "content")
+    if exists(content_db_path):
+        print("Clearing old content ChromaDB...")
+        rmtree(content_db_path)
+        print("Removed content ChromaDB directory")
     
     # Wait a moment to ensure file handles are released
     import time
     time.sleep(0.1)
     
-    # Initialize a fresh ChromaDB vector store
-    VECTOR_STORE = _initialize_chroma_vector_store(file_locations)
+    # Initialize a fresh content index
+    CONTENT_INDEX = _initialize_chroma_vector_store(file_locations, "content")
     succeeded = 0
     failed = 0
+    
     for paper_id in paper_ids:
         # get the metadata
         try:
@@ -389,40 +699,20 @@ def rebuild_index(file_locations:FileLocations=FILE_LOCATIONS):
             print(f"Unable to get metadata for paper {paper_id}, skipping.")
             failed += 1
             continue
-        # load the pdf
-        local_pdf_path = pmd.get_local_pdf_path(file_locations)
+        
+        # Index the paper using the idempotent function
+        # Since we cleared the index, all papers will be re-indexed
         try:
-            reader = SimpleDirectoryReader(input_files=[local_pdf_path])
-            documents = reader.load_data()  
-            if not documents:
-                print(f"Warning: No document loaded from {local_pdf_path}. Skipping.")
-                failed += 1
-                continue
+            index_file_using_pymupdf_parser(pmd, file_locations)
+            succeeded += 1
         except Exception as e:
-            print(f"Error loading document from {local_pdf_path}: {e}. Skipping.")
+            print(f"Error indexing paper {paper_id}: {e}. Skipping.")
             failed += 1
             continue
-
-        # Insert the new document into the global VECTOR_STORE.
-        # This automatically handles chunking and embedding.
-        print(f"Adding new document '{local_pdf_path}' with {len(documents)} chunks to the index.")
-        try:
-            for doc in documents:
-                doc.metadata['file_path'] = 'pdfs/' + doc.metadata['file_name']
-                doc.metadata['paper_id'] = pmd.paper_id
-                doc.metadata['title'] = pmd.title
-                doc.metadata['authors'] = ', '.join(pmd.authors)
-                doc.metadata['categories'] = ', '.join(pmd.categories)
-                VECTOR_STORE.insert(doc)
-        except Exception as e:
-            print(f"Error indexing document from {local_pdf_path}: {e}. Skipping.")
-            failed += 1
-            continue
-        succeeded += 1
 
     if succeeded>0:
         print(f"Processed {succeeded} papers successfully, {failed} had errors.")
-        print("Index rebuild completed successfully (ChromaDB auto-persisted).")
+        print("Content index rebuild completed successfully (ChromaDB auto-persisted).")
     else:
         raise IndexError(f"No papers were reindexed, had {failed} errors.")
 

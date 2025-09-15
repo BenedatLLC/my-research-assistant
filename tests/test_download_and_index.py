@@ -16,9 +16,10 @@ def temp_file_locations():
     # Save the original FILE_LOCATIONS
     original_file_locations = file_locations.FILE_LOCATIONS
     
-    # Also save and reset the global VECTOR_STORE to avoid test pollution
+    # Also save and reset the global indexes to avoid test pollution
     import my_research_assistant.vector_store as vs
-    original_vector_store = vs.VECTOR_STORE
+    original_content_index = vs.CONTENT_INDEX
+    original_summary_index = vs.SUMMARY_INDEX
     original_vs_file_locations = vs.FILE_LOCATIONS
     
     # Create a temporary directory
@@ -33,15 +34,17 @@ def temp_file_locations():
         # Replace the module-level FILE_LOCATIONS
         file_locations.FILE_LOCATIONS = temp_locations
         
-        # Reset the global VECTOR_STORE to None so it gets reinitialized
-        vs.VECTOR_STORE = None
+        # Reset the global indexes to None so they get reinitialized
+        vs.CONTENT_INDEX = None
+        vs.SUMMARY_INDEX = None
         
         try:
             yield temp_locations
         finally:
-            # Restore the original FILE_LOCATIONS and VECTOR_STORE
+            # Restore the original FILE_LOCATIONS and indexes
             file_locations.FILE_LOCATIONS = original_file_locations
-            vs.VECTOR_STORE = original_vector_store
+            vs.CONTENT_INDEX = original_content_index
+            vs.SUMMARY_INDEX = original_summary_index
             vs.FILE_LOCATIONS = original_vs_file_locations
 
 
@@ -71,7 +74,7 @@ def test_pdf_index(temp_file_locations):
     vs.FILE_LOCATIONS = temp_file_locations  # Override the imported FILE_LOCATIONS
     
     vs.index_file(md, temp_file_locations)
-    rtr = vs.VECTOR_STORE.as_retriever()
+    rtr = vs.CONTENT_INDEX.as_retriever()
     response = rtr.retrieve('shielding agents')
     print(response)
 
@@ -109,11 +112,11 @@ def test_rebuild_index(temp_file_locations):
         vs.rebuild_index(temp_file_locations)
         
         # If we get here, rebuild worked - verify the index
-        assert vs.VECTOR_STORE is not None
+        assert vs.CONTENT_INDEX is not None
         assert isdir(temp_file_locations.index_dir)
         
         # Test that we can search the rebuilt index
-        rtr = vs.VECTOR_STORE.as_retriever()
+        rtr = vs.CONTENT_INDEX.as_retriever()
         response = rtr.retrieve('shielding agents')
         assert len(response) > 0, "Should find results for 'shielding agents' query"
         
@@ -228,7 +231,7 @@ def test_search_index_no_database_error(temp_file_locations):
     
     # Override the imported FILE_LOCATIONS but don't create any index
     vs.FILE_LOCATIONS = temp_file_locations
-    vs.VECTOR_STORE = None  # Ensure we start fresh
+    vs.CONTENT_INDEX = None  # Ensure we start fresh
     
     # Should raise IndexError when no database exists
     try:
@@ -267,7 +270,7 @@ def test_search_index_summary_filename_detection(temp_file_locations):
         f.write("# Mock Summary\nThis is a test summary.")
     
     # Reset vector store to test fresh
-    vs.VECTOR_STORE = None
+    vs.CONTENT_INDEX = None
     
     # Search with a summary file present
     results_with_summary = vs.search_index('agent', k=1, file_locations=temp_file_locations)
@@ -296,10 +299,10 @@ def test_index_file_using_pymupdf_parser(temp_file_locations):
     vs.index_file_using_pymupdf_parser(md, temp_file_locations)
     
     # Verify the vector store was created and populated
-    assert vs.VECTOR_STORE is not None
+    assert vs.CONTENT_INDEX is not None
     
     # Test that we can retrieve documents from the indexed content
-    rtr = vs.VECTOR_STORE.as_retriever()
+    rtr = vs.CONTENT_INDEX.as_retriever()
     response = rtr.retrieve('shielding agents')
     assert len(response) > 0, "Should find results for 'shielding agents' query"
     

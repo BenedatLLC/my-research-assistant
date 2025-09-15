@@ -46,6 +46,7 @@ We want to refactor to the following set of commands:
 - open <number|id> - Show the contents of a paper listed via sem-search or list
 - research <query> - Perform deep research on the downloaded papers
 - save - Save the current semantic search result or deep research result
+- rebuild-index - Rebuild the index files for both paper content and summaries.
 - help - Show the valid commands for the current conversation state.
 - status - Show the current workflow status
 - history - Show conversation history
@@ -116,7 +117,7 @@ entering those states, and a description of the state:
 |-------------|----------------------------|--------------------------------------------------------|-----------------------|
 ```
 
-The commands `help`, `status`, `history`, `clear`, `quit`, and `exit` can be run from any state.
+The commands `rebuild-index`, `help`, `status`, `history`, `clear`, `quit`, and `exit` can be run from any state.
 
 ### State transitions
 Here is a table showing each command, the valid start states for that command, the actions taken on
