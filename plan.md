@@ -9,7 +9,7 @@ to the agent is a command line shell, using the `rich` python library for format
 
 1.  [x] Create the basic chatbot
 2.  [x] Review workflow.py and refactor it to make it clearer
-3.  [ ] Add new results and notes directories to FileLocations
+3.  [x] Add new results and notes directories to FileLocations
 4.  [ ] Create a separate index for summaries and notes; make sure indexing tools are idempotent
 5.  [ ] Refactor the chatbot commands with a state machine to control the workflow
 6.  [ ] Add view summary and open commands (use case 2)

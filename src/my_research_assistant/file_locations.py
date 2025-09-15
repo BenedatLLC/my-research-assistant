@@ -16,6 +16,8 @@ class FileLocations(NamedTuple):
     images_dir: str
     pdfs_dir: str
     extracted_paper_text_dir: str
+    notes_dir: str
+    results_dir: str
 
     def ensure_index_dir(self):
         if not isdir(self.index_dir):
@@ -38,6 +40,14 @@ class FileLocations(NamedTuple):
         if not isdir(self.extracted_paper_text_dir):
             os.mkdir(self.extracted_paper_text_dir)
 
+    def ensure_notes_dir(self):
+        if not isdir(self.notes_dir):
+            os.mkdir(self.notes_dir)
+
+    def ensure_results_dir(self):
+        if not isdir(self.results_dir):
+            os.mkdir(self.results_dir)
+
     @staticmethod
     def get_locations(doc_home:Optional[str]=None) -> 'FileLocations':
         """Get the file locations either from the specified location or
@@ -59,7 +69,9 @@ class FileLocations(NamedTuple):
             summaries_dir=summaries_dir,
             images_dir=join(summaries_dir, 'images'),
             pdfs_dir=join(use_doc_home, 'pdfs'),
-            extracted_paper_text_dir=join(use_doc_home, 'extracted_paper_text')
+            extracted_paper_text_dir=join(use_doc_home, 'extracted_paper_text'),
+            notes_dir=join(use_doc_home, 'notes'),
+            results_dir=join(use_doc_home, 'results')
         )
 
 
