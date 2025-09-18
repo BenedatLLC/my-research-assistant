@@ -87,7 +87,8 @@ Welcome to your interactive research assistant! I can help you:
 * `find <query>` - Find papers on ArXiv to download
 * `sem-search <query>` - Search your indexed papers semantically
 * `list` - Show all downloaded papers (with pagination)
-* `help` - Show this help message  
+* `rebuild-index` - Rebuild content and summary indexes from all files
+* `help` - Show this help message
 * `status` - Show current status
 * `history` - Show conversation history
 * `clear` - Clear conversation history
@@ -123,9 +124,14 @@ Welcome to your interactive research assistant! I can help you:
             "sem-search agent safety"
         )
         help_table.add_row(
-            "list", 
-            "Show all downloaded papers with pagination", 
+            "list",
+            "Show all downloaded papers with pagination",
             "list"
+        )
+        help_table.add_row(
+            "rebuild-index",
+            "Rebuild content and summary indexes from all files",
+            "rebuild-index"
         )
         help_table.add_row(
             "select <number>", 
@@ -449,7 +455,30 @@ Welcome to your interactive research assistant! I can help you:
             
         except Exception as e:
             self.interface_adapter.show_error(f"List command failed: {str(e)}")
-    
+
+    async def process_rebuild_index_command(self):
+        """Process a rebuild-index command to rebuild all indexes."""
+        from .vector_store import rebuild_index
+
+        try:
+            self.console.print("🔄 [bold blue]Rebuilding content and summary indexes...[/bold blue]")
+            self.console.print("⚠️ [yellow]This will clear and rebuild all indexes from PDFs, summaries, and notes.[/yellow]")
+
+            # Ask for confirmation
+            from rich.prompt import Confirm
+            if not Confirm.ask("Are you sure you want to continue?", console=self.console):
+                self.console.print("❌ [yellow]Rebuild canceled by user.[/yellow]")
+                return
+
+            # Run the rebuild with status updates
+            with self.console.status("[bold green]Rebuilding indexes..."):
+                rebuild_index(FILE_LOCATIONS)
+
+            self.console.print("✅ [bold green]Index rebuild completed successfully![/bold green]")
+
+        except Exception as e:
+            self.interface_adapter.show_error(f"Index rebuild failed: {str(e)}")
+
     async def run_chat_loop(self):
         """Main chat loop."""
         self.show_welcome()
@@ -529,7 +558,10 @@ Welcome to your interactive research assistant! I can help you:
                 
                 elif user_input.lower() == 'list':
                     await self.process_list_command()
-                
+
+                elif user_input.lower() == 'rebuild-index':
+                    await self.process_rebuild_index_command()
+
                 else:
                     self.interface_adapter.show_info("Unknown command. Type 'help' for available commands.")
                 

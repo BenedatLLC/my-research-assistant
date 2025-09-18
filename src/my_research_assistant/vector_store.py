@@ -660,20 +660,21 @@ def search_summary_index(query:str, k:int=5, file_locations:FileLocations=FILE_L
 
 
 def rebuild_index(file_locations:FileLocations=FILE_LOCATIONS):
-    """Reindex all the pdf files that we have downloaded.
+    """Reindex all the pdf files, summaries, and notes that we have downloaded.
 
-    This function clears the existing content index and rebuilds it from scratch using
-    all downloaded PDFs. It uses the idempotent indexing functions but bypasses the
-    idempotency check by clearing the index first."""
-    global CONTENT_INDEX
-    
+    This function clears the existing content and summary indexes and rebuilds them from scratch using
+    all downloaded PDFs, summaries, and notes. It uses the idempotent indexing functions but bypasses the
+    idempotency check by clearing the indexes first."""
+    global CONTENT_INDEX, SUMMARY_INDEX
+
     # Reset the global indexes first to release any existing connections
     CONTENT_INDEX = None
-    
+    SUMMARY_INDEX = None
+
     # Get list of papers first (before we mess with the database)
     paper_ids = get_downloaded_paper_ids(file_locations)
-    print(f"Found {len(paper_ids)} downloaded papers. Rebuilding content index...")
-    
+    print(f"Found {len(paper_ids)} downloaded papers. Rebuilding content and summary indexes...")
+
     # Clear the existing content ChromaDB by removing the entire directory
     # This avoids locking issues with trying to delete collections
     content_db_path = _get_chroma_db_path(file_locations, "content")
@@ -681,40 +682,79 @@ def rebuild_index(file_locations:FileLocations=FILE_LOCATIONS):
         print("Clearing old content ChromaDB...")
         rmtree(content_db_path)
         print("Removed content ChromaDB directory")
-    
+
+    # Clear the existing summary ChromaDB by removing the entire directory
+    summary_db_path = _get_chroma_db_path(file_locations, "summary")
+    if exists(summary_db_path):
+        print("Clearing old summary ChromaDB...")
+        rmtree(summary_db_path)
+        print("Removed summary ChromaDB directory")
+
     # Wait a moment to ensure file handles are released
     import time
     time.sleep(0.1)
-    
-    # Initialize a fresh content index
+
+    # Initialize fresh indexes
     CONTENT_INDEX = _initialize_chroma_vector_store(file_locations, "content")
-    succeeded = 0
-    failed = 0
-    
-    for paper_id in paper_ids:
+    SUMMARY_INDEX = _initialize_chroma_vector_store(file_locations, "summary")
+
+    content_succeeded = 0
+    content_failed = 0
+    summary_succeeded = 0
+    summary_failed = 0
+    notes_succeeded = 0
+    notes_failed = 0
+
+    for (paper_num, paper_id) in enumerate(paper_ids):
+        print(f"Processing paper {paper_num+1} of {len(paper_ids)}: {paper_id}")
         # get the metadata
         try:
             pmd = get_paper_metadata(paper_id)
         except Exception as e:
             print(f"Unable to get metadata for paper {paper_id}, skipping.")
-            failed += 1
+            content_failed += 1
             continue
-        
-        # Index the paper using the idempotent function
+
+        # Index the paper content using the idempotent function
         # Since we cleared the index, all papers will be re-indexed
         try:
             index_file_using_pymupdf_parser(pmd, file_locations)
-            succeeded += 1
+            content_succeeded += 1
         except Exception as e:
-            print(f"Error indexing paper {paper_id}: {e}. Skipping.")
-            failed += 1
-            continue
+            print(f"Error indexing paper content for {paper_id}: {e}. Skipping.")
+            content_failed += 1
 
-    if succeeded>0:
-        print(f"Processed {succeeded} papers successfully, {failed} had errors.")
-        print("Content index rebuild completed successfully (ChromaDB auto-persisted).")
+        # Try to index summary if it exists
+        summary_path = join(file_locations.summaries_dir, f"{pmd.paper_id}.md")
+        if exists(summary_path):
+            try:
+                index_summary(pmd, file_locations)
+                summary_succeeded += 1
+            except Exception as e:
+                print(f"Error indexing summary for {paper_id}: {e}. Skipping.")
+                summary_failed += 1
+
+        # Try to index notes if they exist
+        notes_path = join(file_locations.notes_dir, f"{pmd.paper_id}.md")
+        if exists(notes_path):
+            try:
+                index_notes(pmd, file_locations)
+                notes_succeeded += 1
+            except Exception as e:
+                print(f"Error indexing notes for {paper_id}: {e}. Skipping.")
+                notes_failed += 1
+
+    # Print summary of results
+    print(f"Content index: {content_succeeded} papers indexed, {content_failed} failed")
+    if summary_succeeded > 0 or summary_failed > 0:
+        print(f"Summary index: {summary_succeeded} summaries indexed, {summary_failed} failed")
+    if notes_succeeded > 0 or notes_failed > 0:
+        print(f"Notes index: {notes_succeeded} notes indexed, {notes_failed} failed")
+
+    if content_succeeded > 0:
+        print("Index rebuild completed successfully (ChromaDB auto-persisted).")
     else:
-        raise IndexError(f"No papers were reindexed, had {failed} errors.")
+        raise IndexError(f"No papers were reindexed, had {content_failed} content errors.")
 
 
 def main():
