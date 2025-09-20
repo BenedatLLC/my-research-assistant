@@ -17,6 +17,21 @@ run in each state of the user's conversation. The general priciples are:
    of the semantic search or deep research, the system will come up with a unique title based on the
    search topic and let the user know the saved file location.
 
+## Implementation instructions
+To implement these changed, do the following:
+1. Review the design and the current implementation
+2. Ask for clarification on any unclear aspects of the design that are relevant
+   to the implementation.
+3. Come up with a written plan for the changes. A recommended sequnce:
+   a. Make any changes/additions to lower level functions and tools needed
+      for the new design.
+   b. Refactor the workflow, adding the state variables, and the appropriate state transitions.
+   c. Refactor the chat interface to reflect the new commands and workflow.
+   d. Make sure the existing unit tests pass, fixing them as needed
+   e. Add test cases corresponding to the "Test flows" section and make sure they pass
+4. Do the implementation according to the plan.
+5. Add a section to this document giving an outline of the implementation.
+
 ## Commands
 The current commands are:
 
