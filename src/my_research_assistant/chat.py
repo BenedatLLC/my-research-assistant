@@ -119,9 +119,14 @@ Welcome to your interactive research assistant! I can help you:
             "find neural networks"
         )
         help_table.add_row(
-            "sem-search <query>", 
-            "Search your indexed papers semantically", 
+            "sem-search <query>",
+            "Search your indexed papers semantically",
             "sem-search agent safety"
+        )
+        help_table.add_row(
+            "research <query>",
+            "Perform deep research on your indexed papers",
+            "research transformer models"
         )
         help_table.add_row(
             "list",
@@ -234,16 +239,21 @@ Welcome to your interactive research assistant! I can help you:
     async def process_search_command(self, query: str):
         """Process a search command using the workflow system."""
         self.current_state = "searching"
-        
+
         try:
             # Use the workflow system for paper search
             result = await self.workflow_runner.start_add_paper_workflow(query)
-            
-            if result and not result.startswith("❌") and not result.startswith("No papers"):
+
+            # Check if result contains papers (from SearchResult wrapper)
+            if hasattr(result, 'papers') and hasattr(result, 'message'):
+                # Extract papers and store them for selection
+                self.current_papers = result.papers
+                self.current_state = "paper_selection"
+            elif result and not result.startswith("❌") and not result.startswith("No papers"):
                 self.current_state = "paper_selection"
             else:
                 self.current_state = "ready"
-            
+
         except Exception as e:
             self.interface_adapter.show_error(f"Search failed: {str(e)}")
             self.current_state = "ready"
@@ -329,17 +339,19 @@ Welcome to your interactive research assistant! I can help you:
     async def process_semantic_search_command(self, query: str):
         """Process a semantic search command using the workflow system."""
         self.current_state = "semantic_searching"
-        
+
         try:
             result = await self.workflow_runner.start_semantic_search_workflow(query)
-            
+
             if result and not result.startswith("❌"):
+                # Display the result to the user
+                self.render_markdown_response(result)
                 # Add to history
                 self.add_to_history("assistant", result)
-            
+
             # Reset state
             self.current_state = "ready"
-            
+
         except Exception as e:
             self.interface_adapter.show_error(f"Semantic search failed: {str(e)}")
             self.current_state = "ready"
@@ -550,12 +562,21 @@ Welcome to your interactive research assistant! I can help you:
                         query = user_input[16:].strip()  # "semantic-search " is 16 chars
                     else:
                         query = user_input[11:].strip()  # "sem-search " is 11 chars
-                    
+
                     if query:
                         await self.process_semantic_search_command(query)
                     else:
                         self.console.print("❌ [red]Please provide a search query[/red]")
-                
+
+                elif user_input.lower().startswith('research '):
+                    # Handle research command (calls same underlying implementation as sem-search)
+                    query = user_input[9:].strip()  # "research " is 9 chars
+
+                    if query:
+                        await self.process_semantic_search_command(query)
+                    else:
+                        self.console.print("❌ [red]Please provide a research query[/red]")
+
                 elif user_input.lower() == 'list':
                     await self.process_list_command()
 

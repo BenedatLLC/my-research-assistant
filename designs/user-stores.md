@@ -26,4 +26,6 @@ These are the high level operations for the agent.
    * Can selectively re-index and or re-summarize individual papers on demand
    * Pdfs, extracted text, and summaries are kept and reused across requests. If missing, they will be
      re-generated on demand.
+   * Can remove a paper from the repository, including pdf, summary, and indexed data, etc. This is useful
+     when multiple versions of the same paper have been included in the repository.
 

@@ -3,6 +3,7 @@ from os.path import join, exists, basename
 import os
 import datetime
 import logging
+import json
 from typing import Optional
 from pydantic import BaseModel
 import arxiv
@@ -71,14 +72,18 @@ def map_category(category_code:str, mappings:dict[str,str]) -> str:
     return mappings[category_code] if category_code in mappings else category_code
 
 
-def get_paper_metadata(arxiv_id: str) -> PaperMetadata:
+def get_paper_metadata(arxiv_id: str, file_locations:Optional[str]=None) -> PaperMetadata:
     """Retrieve paper metadata from arXiv without downloading the PDF.
-    
+
     Parameters
     ----------
     arxiv_id : str
         The arXiv paper identifier (e.g., '2503.22738v1' or '2503.22738')
-        
+    file_locations: Optional[str]
+        File location object used to obtain path for metadata cache directory.
+        If not provided, defaults to file_locations.FILE_LOCATIONS, which is set
+        based on the DOC_HOME environment variable.
+
     Returns
     -------
     PaperMetadata
@@ -105,26 +110,44 @@ def get_paper_metadata(arxiv_id: str) -> PaperMetadata:
             A URL for the resolved DOI to an external resource if present.
         - journal_ref: Optional[str]
             A journal reference if present.
-            
+
     Raises
     ------
     Exception
         If no PDF URL is found for the specified paper ID
     """
+    if file_locations is None:
+        from .file_locations import FILE_LOCATIONS
+        file_locations = FILE_LOCATIONS
+
+    # Check for cached metadata first
+    file_locations.ensure_paper_metadata_dir()
+    cache_file = join(file_locations.paper_metadata_dir, f"{arxiv_id}.json")
+
+    if exists(cache_file):
+        try:
+            with open(cache_file, 'r', encoding='utf-8') as f:
+                cached_data = json.load(f)
+            return PaperMetadata.model_validate(cached_data)
+        except (json.JSONDecodeError, ValueError) as e:
+            logging.warning(f"Failed to load cached metadata for {arxiv_id}: {e}")
+            # Continue to fetch from arXiv if cache is corrupted
+
+    # Fetch from arXiv API
     client = arxiv.Client()
     search_by_id = arxiv.Search(id_list=[arxiv_id])
     result = next(client.results(search_by_id))
     paper_id = result.get_short_id()
     if result.pdf_url is None:
         raise Exception(f"No pdf url found for paper {arxiv_id}")
-    
+
     mappings = get_category_mappings()
     primary: str = map_category(result.primary_category, mappings)
     other_categories: list[str] = [map_category(c, mappings) for c in result.categories
                                   if c != result.primary_category]
     all_categories = [primary] + other_categories
-    
-    return PaperMetadata(
+
+    metadata = PaperMetadata(
         paper_id=arxiv_id,
         title=result.title,
         published=result.published,
@@ -137,6 +160,15 @@ def get_paper_metadata(arxiv_id: str) -> PaperMetadata:
         doi=result.doi,
         journal_ref=result.journal_ref,
     )
+
+    # Cache the metadata
+    try:
+        with open(cache_file, 'w', encoding='utf-8') as f:
+            json.dump(metadata.model_dump(), f, indent=2, default=str)
+    except (OSError, IOError) as e:
+        logging.warning(f"Failed to cache metadata for {arxiv_id}: {e}")
+
+    return metadata
 
 
 def download_paper(paper_metadata: PaperMetadata, file_locations=None) -> str:

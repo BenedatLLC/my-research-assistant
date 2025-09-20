@@ -1,5 +1,5 @@
 ----
-status: partially implemented
+status: implemented
 ----
 
 # File store design
@@ -28,6 +28,9 @@ $DOC_HOME
      |
      |---- pdfs/                 - downloads of the full papers, in pdf format. Filenames have the
      |                             form PAPER_ID.pdf.
+     |
+     |---- paper_metadata/       - this contains json files for the paper metadata obtained from Arxiv
+     |
      |
      |---- extracted_paper_text/ - this is the where markdown extracted from the pdfs is stored
      |                             Filenames have the form PAPER_ID.md.

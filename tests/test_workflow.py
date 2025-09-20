@@ -11,14 +11,13 @@ from typing import List
 pytest_plugins = ('pytest_asyncio',)
 
 from my_research_assistant.workflow import (
-    ResearchAssistantWorkflow, 
+    ResearchAssistantWorkflow,
     WorkflowRunner,
     SearchResultsEvent,
     PaperSelectedEvent,
     PaperDownloadedEvent,
     PaperIndexedEvent,
     SummaryGeneratedEvent,
-    SummaryImproveEvent,
     SummarySavedEvent,
     SemanticSearchEvent,
     SemanticSearchResultsEvent
@@ -145,18 +144,11 @@ class TestWorkflowEvents:
         assert event.summary == "# Test Summary\nThis is a test summary"
         assert event.paper_text == "Full paper text"
     
-    def test_summary_improve_event(self, sample_paper_metadata):
-        """Test SummaryImproveEvent creation."""
-        event = SummaryImproveEvent(
-            paper=sample_paper_metadata,
-            current_summary="Old summary",
-            paper_text="Full paper text",
-            feedback="Make it more detailed"
-        )
-        assert event.paper == sample_paper_metadata
-        assert event.current_summary == "Old summary"
-        assert event.paper_text == "Full paper text"
-        assert event.feedback == "Make it more detailed"
+    # Note: SummaryImproveEvent was removed from the workflow
+    # This test is commented out as the event is no longer used
+    # def test_summary_improve_event(self, sample_paper_metadata):
+    #     """Test SummaryImproveEvent creation."""
+    #     pass
 
 
 class TestWorkflowSteps:
@@ -328,34 +320,12 @@ class TestWorkflowSteps:
             
             mock_summarize.assert_called_once_with("Full paper text", sample_paper_metadata)
     
-    @pytest.mark.asyncio
-    async def test_improve_summary_step_success(self, workflow, sample_paper_metadata):
-        """Test successful summary improvement."""
-        with patch('my_research_assistant.workflow.summarize_paper') as mock_summarize:
-            mock_summarize.return_value = "# Improved Summary\nThis is an improved summary"
-            
-            ctx = Mock(spec=Context)
-            ctx.write_event_to_stream = Mock()
-            
-            improve_event = SummaryImproveEvent(
-                paper=sample_paper_metadata,
-                current_summary="Old summary",
-                paper_text="Full paper text",
-                feedback="Make it more detailed"
-            )
-            
-            result = await workflow.improve_summary_step(ctx, improve_event)
-            
-            assert isinstance(result, SummaryGeneratedEvent)
-            assert result.paper == sample_paper_metadata
-            assert result.summary == "# Improved Summary\nThis is an improved summary"
-            
-            mock_summarize.assert_called_once_with(
-                "Full paper text", 
-                sample_paper_metadata,
-                feedback="Make it more detailed",
-                previous_summary="Old summary"
-            )
+    # Note: improve_summary_step was removed from the workflow
+    # This test is commented out as the step is no longer used
+    # @pytest.mark.asyncio
+    # async def test_improve_summary_step_success(self, workflow, sample_paper_metadata):
+    #     """Test successful summary improvement."""
+    #     pass
     
     @pytest.mark.asyncio
     async def test_save_summary_step_success(self, workflow, sample_paper_metadata, temp_file_locations):
@@ -458,3 +428,288 @@ class TestWorkflowEndToEnd:
         # result = await runner.start_workflow("machine learning transformers")
         # assert "Summary saved successfully" in result
         pass
+
+
+class TestFindSelectWorkflow:
+    """Test the find/select workflow integration."""
+
+    @pytest.mark.asyncio
+    async def test_find_select_paper_state_management(self):
+        """Test that papers found by find command are available for select command."""
+        from my_research_assistant.chat import ChatInterface
+        from unittest.mock import AsyncMock, Mock
+
+        # Create a chat interface instance
+        chat = ChatInterface()
+
+        # Mock the workflow runner and its methods
+        mock_workflow_runner = Mock()
+
+        # Create mock papers
+        from my_research_assistant.project_types import PaperMetadata
+        from datetime import datetime
+
+        mock_papers = [
+            PaperMetadata(
+                paper_id="2503.22738",
+                title="Test Paper 1",
+                authors=["Author 1", "Author 2"],
+                abstract="Test abstract 1",
+                published=datetime(2025, 6, 22),
+                updated=datetime(2025, 6, 22),
+                paper_abs_url="https://arxiv.org/abs/2503.22738",
+                paper_pdf_url="https://arxiv.org/pdf/2503.22738.pdf",
+                categories=["cs.AI"],
+                doi=None,
+                journal_ref=None
+            ),
+            PaperMetadata(
+                paper_id="2503.22739",
+                title="Test Paper 2",
+                authors=["Author 3", "Author 4"],
+                abstract="Test abstract 2",
+                published=datetime(2025, 6, 23),
+                updated=datetime(2025, 6, 23),
+                paper_abs_url="https://arxiv.org/abs/2503.22739",
+                paper_pdf_url="https://arxiv.org/pdf/2503.22739.pdf",
+                categories=["cs.LG"],
+                doi=None,
+                journal_ref=None
+            )
+        ]
+
+        # Create a SearchResult wrapper like the one returned by the workflow
+        class MockSearchResult:
+            def __init__(self, message, papers):
+                self.message = message
+                self.papers = papers
+
+            def startswith(self, prefix):
+                return self.message.startswith(prefix)
+
+        # Mock the workflow runner to return papers
+        mock_result = MockSearchResult("Multiple papers found - awaiting selection", mock_papers)
+        mock_workflow_runner.start_add_paper_workflow = AsyncMock(return_value=mock_result)
+
+        # Mock the process_paper_selection method that's called by select command
+        class MockProcessingResult:
+            def __init__(self):
+                self.paper = mock_papers[0]
+                self.summary = "Test summary"
+                self.paper_text = "Test paper text"
+
+        mock_workflow_runner.process_paper_selection = AsyncMock(return_value=MockProcessingResult())
+
+        # Mock the interface adapter
+        mock_interface = Mock()
+        mock_interface.show_error = Mock()
+        mock_interface.show_success = Mock()
+
+        # Inject mocks into chat interface
+        chat.workflow_runner = mock_workflow_runner
+        chat.interface_adapter = mock_interface
+
+        # Test the find command
+        await chat.process_search_command("test query")
+
+        # Verify that papers were stored and state was set correctly
+        assert chat.current_papers == mock_papers
+        assert chat.current_state == "paper_selection"
+        assert len(chat.current_papers) == 2
+
+        # Test the select command
+        await chat.process_select_command("1")
+
+        # Verify that no error was shown (papers were available)
+        mock_interface.show_error.assert_not_called()
+        mock_interface.show_success.assert_called_once()
+
+        # Verify the correct paper was selected
+        success_call = mock_interface.show_success.call_args[0][0]
+        assert "Test Paper 1" in success_call
+
+    @pytest.mark.asyncio
+    async def test_find_no_papers_state(self):
+        """Test that select command shows error when no papers are found."""
+        from my_research_assistant.chat import ChatInterface
+        from unittest.mock import AsyncMock, Mock
+
+        # Create a chat interface instance
+        chat = ChatInterface()
+
+        # Mock the workflow runner to return no papers
+        mock_workflow_runner = Mock()
+        mock_workflow_runner.start_add_paper_workflow = AsyncMock(return_value="No papers found")
+
+        # Mock the interface adapter
+        mock_interface = Mock()
+        mock_interface.show_error = Mock()
+
+        # Inject mocks into chat interface
+        chat.workflow_runner = mock_workflow_runner
+        chat.interface_adapter = mock_interface
+
+        # Test the find command with no results
+        await chat.process_search_command("nonexistent query")
+
+        # Verify that no papers were stored and state is ready
+        assert chat.current_papers == []
+        assert chat.current_state == "ready"
+
+        # Test the select command when no papers are available
+        await chat.process_select_command("1")
+
+        # Verify that error was shown
+        mock_interface.show_error.assert_called_once_with("No papers available to select. Search first.")
+
+
+class TestSemanticSearchDisplay:
+    """Test the semantic search display functionality."""
+
+    @pytest.mark.asyncio
+    async def test_semantic_search_displays_result(self):
+        """Test that semantic search displays RAG summary to user."""
+        from my_research_assistant.chat import ChatInterface
+        from unittest.mock import AsyncMock, Mock
+
+        # Create a chat interface instance
+        chat = ChatInterface()
+
+        # Mock workflow runner with a RAG result
+        mock_workflow_runner = Mock()
+        mock_rag_result = """# Answer: test query
+
+Based on the retrieved passages, here is the answer to your question.
+
+## Papers Used in This Answer
+
+1. **Test Paper**
+   - Paper ID: test123
+   - Relevant pages: 1, 2
+   - PDF: `/path/to/test.pdf`
+
+---
+
+*Search details: Found 5 relevant chunks across 1 papers*"""
+
+        mock_workflow_runner.start_semantic_search_workflow = AsyncMock(return_value=mock_rag_result)
+
+        # Mock interface adapter
+        mock_interface = Mock()
+        mock_interface.render_content = Mock()
+        mock_interface.show_error = Mock()
+
+        # Inject mocks
+        chat.workflow_runner = mock_workflow_runner
+        chat.interface_adapter = mock_interface
+
+        # Test semantic search
+        await chat.process_semantic_search_command("test query")
+
+        # Verify that render_content was called with the RAG result
+        mock_interface.render_content.assert_called_once_with(mock_rag_result, "markdown")
+
+        # Verify no errors were shown
+        mock_interface.show_error.assert_not_called()
+
+        # Verify conversation history was updated
+        assert len(chat.conversation_history) == 1
+        assert chat.conversation_history[0]['role'] == 'assistant'
+        assert chat.conversation_history[0]['content'] == mock_rag_result
+
+    @pytest.mark.asyncio
+    async def test_semantic_search_error_not_displayed_as_markdown(self):
+        """Test that semantic search errors are not displayed as markdown."""
+        from my_research_assistant.chat import ChatInterface
+        from unittest.mock import AsyncMock, Mock
+
+        # Create a chat interface instance
+        chat = ChatInterface()
+
+        # Mock workflow runner with an error result
+        mock_workflow_runner = Mock()
+        mock_error_result = "❌ No relevant passages found"
+        mock_workflow_runner.start_semantic_search_workflow = AsyncMock(return_value=mock_error_result)
+
+        # Mock interface adapter
+        mock_interface = Mock()
+        mock_interface.render_content = Mock()
+        mock_interface.show_error = Mock()
+
+        # Inject mocks
+        chat.workflow_runner = mock_workflow_runner
+        chat.interface_adapter = mock_interface
+
+        # Test semantic search with error
+        await chat.process_semantic_search_command("test query")
+
+        # Verify that render_content was NOT called for error messages
+        mock_interface.render_content.assert_not_called()
+
+        # Verify no additional errors were shown (the ❌ result is the error itself)
+        mock_interface.show_error.assert_not_called()
+
+        # Verify conversation history was not updated for error messages
+        assert len(chat.conversation_history) == 0
+
+
+class TestResearchCommand:
+    """Test the research command functionality."""
+
+    @pytest.mark.asyncio
+    async def test_research_command_calls_semantic_search(self):
+        """Test that research command calls the same underlying semantic search."""
+        from my_research_assistant.chat import ChatInterface
+        from unittest.mock import AsyncMock, Mock
+
+        # Create a chat interface instance
+        chat = ChatInterface()
+
+        # Mock workflow runner with a research result
+        mock_workflow_runner = Mock()
+        mock_research_result = """# Research Results: machine learning
+
+Based on comprehensive analysis of indexed papers, machine learning encompasses various algorithms and techniques.
+
+## Papers Analyzed in This Research
+
+1. **Deep Learning Fundamentals**
+   - Paper ID: test123
+   - Relevant pages: 1, 3, 5
+   - PDF: `/path/to/test.pdf`
+
+---
+
+*Research analysis: Found 8 relevant chunks across 1 papers*"""
+
+        mock_workflow_runner.start_semantic_search_workflow = AsyncMock(return_value=mock_research_result)
+
+        # Mock interface adapter
+        mock_interface = Mock()
+        mock_interface.render_content = Mock()
+        mock_interface.show_error = Mock()
+
+        # Inject mocks
+        chat.workflow_runner = mock_workflow_runner
+        chat.interface_adapter = mock_interface
+
+        # Simulate processing "research machine learning"
+        user_input = "research machine learning"
+        query = user_input[9:].strip()  # Extract query like the actual implementation does
+
+        # Call the semantic search method (same as what research command does)
+        await chat.process_semantic_search_command(query)
+
+        # Verify that the underlying semantic search workflow was called
+        mock_workflow_runner.start_semantic_search_workflow.assert_called_once_with("machine learning")
+
+        # Verify that the result was displayed as markdown
+        mock_interface.render_content.assert_called_once_with(mock_research_result, "markdown")
+
+        # Verify no errors were shown
+        mock_interface.show_error.assert_not_called()
+
+        # Verify conversation history was updated
+        assert len(chat.conversation_history) == 1
+        assert chat.conversation_history[0]['role'] == 'assistant'
+        assert chat.conversation_history[0]['content'] == mock_research_result

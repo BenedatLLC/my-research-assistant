@@ -108,14 +108,6 @@ class SummaryGeneratedEvent(Event):
     paper_text: str
 
 
-class SummaryImproveEvent(Event):
-    """Event to improve the summary based on user feedback"""
-    paper: PaperMetadata
-    current_summary: str
-    paper_text: str
-    feedback: str
-
-
 class SummarySavedEvent(Event):
     """Event when summary is saved to filesystem"""
     paper: PaperMetadata
@@ -288,27 +280,6 @@ class ResearchAssistantWorkflow(Workflow):
             return StopEvent(result=f"Summary generation failed: {str(e)}")
     
     @step
-    async def improve_summary_step(self, ctx: Context, ev: SummaryImproveEvent) -> SummaryGeneratedEvent | StopEvent:
-        """Step 6-7: Improve summary based on user feedback"""
-        paper = ev.paper
-        current_summary = ev.current_summary
-        paper_text = ev.paper_text
-        feedback = ev.feedback
-        
-        try:
-            with self.interface.progress_context(f"🔄 Improving summary based on feedback: '{feedback}'..."):
-                improved_summary = summarize_paper(paper_text, paper, feedback=feedback, previous_summary=current_summary)
-            
-            self.interface.show_success("Summary improved!")
-            self.interface.render_content(improved_summary, "markdown", "📝 Improved Summary")
-            self.interface.show_info("Would you like any further changes? If not, reply 'save' to save the summary.")
-            
-            return SummaryGeneratedEvent(paper=paper, summary=improved_summary, paper_text=paper_text)
-        except Exception as e:
-            self.interface.show_error(f"Summary improvement failed: {str(e)}")
-            return StopEvent(result=f"Summary improvement failed: {str(e)}")
-    
-    @step
     async def save_summary_step(self, ctx: Context, ev: SummaryGeneratedEvent) -> StopEvent:
         """Step 8: Save the final summary"""
         paper = ev.paper
@@ -473,30 +444,61 @@ class WorkflowRunner:
     async def start_add_paper_workflow(self, query: str):
         """Start the add paper workflow with a search query"""
         handler = self.workflow.run(query=query)
-        
+
+        found_papers = None
         async for event in handler.stream_events():
+            # Capture papers when search results are found
+            if isinstance(event, SearchResultsEvent):
+                found_papers = event.papers
+
             if isinstance(event, StopEvent):
                 print(event.result)
+
+                # If we found papers and the workflow is waiting for selection,
+                # return a special result that includes the papers
+                if found_papers and "awaiting selection" in event.result:
+                    class SearchResult:
+                        def __init__(self, message, papers):
+                            self.message = message
+                            self.papers = papers
+
+                        def startswith(self, prefix):
+                            return self.message.startswith(prefix)
+
+                    return SearchResult(event.result, found_papers)
+
                 return event.result
-        
+
         return "Add paper workflow completed"
     
     async def start_semantic_search_workflow(self, query: str):
-        """Start the semantic search workflow"""
+        """Start the enhanced semantic search workflow with RAG summarization"""
         try:
             # Directly call the semantic search methods
             from .vector_store import search_index
-            
+
             print(f"🔍 Searching local paper index for: '{query}'...")
-            
-            # Search the local index
-            results = search_index(query, k=10, file_locations=self.workflow.file_locations)
-            
+
+            # Search the local index with higher k for better coverage
+            results = search_index(query, k=15, file_locations=self.workflow.file_locations)
+
             if not results:
-                return f"❌ No results found in local index for '{query}'. Try adding more papers or using different search terms."
-            
+                return f"""❌ **No relevant passages found**
+
+I couldn't find any passages in the indexed papers that are relevant to your query: "{query}"
+
+**Possible reasons:**
+- No papers have been indexed yet
+- The query terms don't match content in the indexed papers
+- Try rephrasing your query with different keywords
+
+**Suggestions:**
+- Use the `list` command to see what papers are available
+- Try broader search terms
+- Use the `find` command to search for and download more papers on this topic"""
+
             print(f"✅ Found {len(results)} relevant chunks from {len(set(r.paper_id for r in results))} paper(s)")
-            
+
             # Group results by paper
             papers_dict = {}
             for result in results:
@@ -511,67 +513,184 @@ class WorkflowRunner:
                     'text': result.chunk,
                     'page': result.page
                 })
-            
+
             # Create context for LLM summarization
             context_text = ""
             for paper_id, paper_data in papers_dict.items():
                 context_text += f"\n## Paper: {paper_data['title']} (ID: {paper_id})\n"
                 for chunk in paper_data['chunks']:
                     context_text += f"[Page {chunk['page']}] {chunk['text']}\n\n"
-            
-            print(f"📝 Generating summary of search results for: '{query}'...")
-            
-            # Generate summary using LLM
-            summary_prompt = f"""Based on the following search results for the query "{query}", provide a comprehensive summary that synthesizes the key insights and findings. Include relevant details and organize the information clearly.
 
-Search Results:
+            print(f"📝 Generating RAG summary for: '{query}'...")
+
+            # Enhanced RAG prompt that focuses on answering the specific question
+            rag_prompt = f"""You are a research assistant tasked with answering a specific question based on retrieved passages from academic papers.
+
+QUESTION: {query}
+
+RETRIEVED PASSAGES:
 {context_text}
 
-Please provide a well-structured summary that addresses the query and highlights the most relevant information from these papers."""
-            
-            summary_response = await self.workflow.llm.acomplete(summary_prompt)
-            summary_text = summary_response.text
-            
-            # Create final response with references and links
-            final_response = f"# Search Results Summary: {query}\n\n"
-            final_response += f"{summary_text}\n\n"
-            
-            # Add references section
-            final_response += "## References and Sources\n\n"
-            for paper_id, paper_data in papers_dict.items():
-                final_response += f"### {paper_data['title']}\n"
-                final_response += f"- **Paper ID**: {paper_id}\n"
-                
-                # Create plain text file paths
-                pdf_path = f"{self.workflow.file_locations.pdfs_dir}/{paper_data['pdf_filename']}"
-                final_response += f"- **PDF File**: {pdf_path}\n"
-                
-                if paper_data['summary_filename']:
-                    summary_path = f"{self.workflow.file_locations.summaries_dir}/{paper_data['summary_filename']}"
-                    final_response += f"- **Summary File**: {summary_path}\n"
-                else:
-                    final_response += f"- **Summary File**: Not available\n"
-                
-                # Show relevant pages
+INSTRUCTIONS:
+1. Carefully analyze the retrieved passages to determine if they contain information relevant to answering the question
+2. If the passages contain relevant information, provide a comprehensive answer that:
+   - Directly addresses the question
+   - Synthesizes information from multiple sources when applicable
+   - Cites specific findings or claims from the papers
+   - Maintains scientific accuracy and nuance
+3. If the passages do NOT contain sufficient information to answer the question, clearly state this limitation
+4. Focus on answering the specific question rather than providing a general summary of the papers
+
+RESPONSE FORMAT:
+Provide your answer in a clear, well-structured format. Be specific about what the research shows and acknowledge any limitations in the available information."""
+
+            rag_response = await self.workflow.llm.acomplete(rag_prompt)
+            answer_text = rag_response.text
+
+            # Check if the LLM indicated insufficient information (common patterns)
+            insufficient_patterns = [
+                "do not contain sufficient information",
+                "cannot be answered",
+                "not enough information",
+                "insufficient evidence",
+                "passages do not provide",
+                "cannot determine from the provided"
+            ]
+
+            answer_lower = answer_text.lower()
+            if any(pattern in answer_lower for pattern in insufficient_patterns):
+                # Return a response indicating insufficient information
+                final_response = f"""❌ **Insufficient information to answer the question**
+
+**Your Question:** {query}
+
+**Analysis:** The retrieved passages from {len(papers_dict)} paper(s) do not contain sufficient information to adequately answer your question.
+
+**What was found:** {len(results)} relevant text chunks were retrieved, but they don't provide enough context or specific information to address your query.
+
+**Suggestions:**
+- Try rephrasing your question with different keywords
+- Search for more specific terms related to your question
+- Use the `find` command to download more papers on this topic
+- Consider breaking down complex questions into simpler parts"""
+
+                # Still include the paper list for reference
+                if papers_dict:
+                    final_response += f"\n\n**Papers searched:**\n"
+                    for i, (paper_id, paper_data) in enumerate(papers_dict.items(), 1):
+                        final_response += f"{i}. {paper_data['title']} (ID: {paper_id})\n"
+
+                return final_response
+
+            # Create final response with answer and numbered paper references
+            final_response = f"# Answer: {query}\n\n"
+            final_response += f"{answer_text}\n\n"
+
+            # Add numbered references section
+            final_response += "## Papers Used in This Answer\n\n"
+            for i, (paper_id, paper_data) in enumerate(papers_dict.items(), 1):
+                final_response += f"{i}. **{paper_data['title']}**\n"
+                final_response += f"   - Paper ID: {paper_id}\n"
+
+                # Show relevant pages for this paper
                 pages = sorted(set(chunk['page'] for chunk in paper_data['chunks']))
                 if len(pages) == 1:
-                    final_response += f"- **Relevant Page**: {pages[0]}\n"
+                    final_response += f"   - Relevant page: {pages[0]}\n"
                 else:
-                    final_response += f"- **Relevant Pages**: {', '.join(map(str, pages))}\n"
+                    final_response += f"   - Relevant pages: {', '.join(map(str, pages))}\n"
+
+                # Add file paths
+                pdf_path = f"{self.workflow.file_locations.pdfs_dir}/{paper_data['pdf_filename']}"
+                final_response += f"   - PDF: `{pdf_path}`\n"
+
+                if paper_data['summary_filename']:
+                    summary_path = f"{self.workflow.file_locations.summaries_dir}/{paper_data['summary_filename']}"
+                    final_response += f"   - Summary: `{summary_path}`\n"
+
                 final_response += "\n"
-            
-            # Add search statistics
-            final_response += f"## Search Statistics\n"
-            final_response += f"- **Query**: {query}\n"
-            final_response += f"- **Results**: {len(results)} relevant text chunks\n"
-            final_response += f"- **Papers**: {len(papers_dict)} unique papers\n"
-            final_response += f"- **Index Location**: `{self.workflow.file_locations.index_dir}`\n"
-            
+
+            # Add search metadata
+            final_response += f"---\n\n"
+            final_response += f"*Search details: Found {len(results)} relevant chunks across {len(papers_dict)} papers*"
+
             return final_response
-            
+
         except Exception as e:
             return f"❌ Semantic search failed: {str(e)}"
     
+    async def process_paper_selection(self, selected_paper: PaperMetadata):
+        """Process a selected paper through the complete workflow"""
+        try:
+            from .arxiv_downloader import download_paper
+            from .vector_store import index_file
+            from .summarizer import summarize_paper
+
+            # Step 1: Download the paper
+            print(f"📥 Downloading paper: '{selected_paper.title}'...")
+            local_path = download_paper(selected_paper, self.workflow.file_locations)
+            print(f"✅ Paper downloaded successfully to: {local_path}")
+
+            # Step 2: Index the paper
+            print(f"🔍 Indexing paper: '{selected_paper.title}'...")
+            paper_text = index_file(selected_paper)
+            print(f"✅ Paper indexed successfully. Extracted {len(paper_text)} characters of text.")
+
+            # Step 3: Generate summary
+            print(f"📝 Generating summary for: '{selected_paper.title}'...")
+            summary = summarize_paper(paper_text, selected_paper)
+            print("✅ Summary generated successfully!")
+
+            # Return an object with the expected attributes
+            class ProcessingResult:
+                def __init__(self, paper, summary, paper_text):
+                    self.paper = paper
+                    self.summary = summary
+                    self.paper_text = paper_text
+
+            return ProcessingResult(selected_paper, summary, paper_text)
+
+        except Exception as e:
+            return f"❌ Paper processing failed: {str(e)}"
+
+    async def improve_summary(self, paper: PaperMetadata, current_summary: str, paper_text: str, feedback: str):
+        """Improve a summary based on user feedback"""
+        try:
+            from .summarizer import summarize_paper
+
+            print(f"🔄 Improving summary based on feedback: '{feedback}'...")
+            improved_summary = summarize_paper(paper_text, paper, feedback=feedback, previous_summary=current_summary)
+
+            print("✅ Summary improved!")
+
+            # Return an object with the summary attribute that chat.py expects
+            class SummaryResult:
+                def __init__(self, summary):
+                    self.summary = summary
+
+            return SummaryResult(improved_summary)
+        except Exception as e:
+            raise Exception(f"Summary improvement failed: {str(e)}")
+
+    async def save_summary(self, paper: PaperMetadata, summary: str, paper_text: str):
+        """Save a summary to the filesystem"""
+        try:
+            from .summarizer import save_summary
+
+            print(f"💾 Saving summary for: '{paper.title}'...")
+            file_path = save_summary(summary, paper.paper_id)
+
+            completion_message = f"""🎉 **Summary Saved Successfully!**
+
+**Paper:** {paper.title}
+**Summary Location:** {file_path}
+
+You can now find another paper or start a new search."""
+
+            print(completion_message)
+            return f"Summary saved successfully: {file_path}"
+        except Exception as e:
+            raise Exception(f"Summary save failed: {str(e)}")
+
     async def continue_workflow(self, user_input: str, current_papers: Optional[List[PaperMetadata]] = None):
         """Continue the workflow based on user input"""
         # This would handle user selections and feedback

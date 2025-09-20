@@ -11,9 +11,9 @@ to the agent is a command line shell, using the `rich` python library for format
 2.  [x] Review workflow.py and refactor it to make it clearer
 3.  [x] Add new results and notes directories to FileLocations
 4.  [x] Make sure indexing functions are idempotent. Also, create a separate index for summaries and notes.
-5.  [ ] Refactor the chatbot commands with a state machine to control the workflow
-6.  [ ] Add view summary and open commands (use case 2)
-7.  [ ] Finish the RAG command (use case 3)
+5.  [x] Update the sem-search command to provide an actual summary of the answer and a list of the papers
+6.  [ ] Refactor the chatbot commands with a state machine to control the workflow
+7.  [ ] Add view summary and open commands (use case 2)
 8.  [ ] Implement deep research (use case 4)
 9.  [ ] Add any commands needed to finish use case 5 (maintenance)
 10. [ ] Add intent detection in front of the commands, so that user can just provide natural text queries
