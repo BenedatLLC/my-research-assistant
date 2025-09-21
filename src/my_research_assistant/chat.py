@@ -42,8 +42,13 @@ class ChatInterface:
         self.llm = None
         self.workflow_runner = None
         self.conversation_history = []
+
+        # Initialize state machine
+        from .state_machine import StateMachine
+        self.state_machine = StateMachine()
+
+        # For backward compatibility during transition
         self.current_papers = []
-        self.current_state = "ready"
         
     def initialize(self):
         """Initialize the LLM and workflow components."""
@@ -112,86 +117,163 @@ Welcome to your interactive research assistant! I can help you:
         help_table.add_column("Command", style="cyan", no_wrap=True)
         help_table.add_column("Description", style="white")
         help_table.add_column("Example", style="green")
-        
+        help_table.add_column("States", style="yellow", no_wrap=True)
+
+        # Core discovery commands
         help_table.add_row(
-            "find <query>", 
-            "Find papers on ArXiv to download", 
-            "find neural networks"
-        )
-        help_table.add_row(
-            "sem-search <query>",
-            "Search your indexed papers semantically",
-            "sem-search agent safety"
-        )
-        help_table.add_row(
-            "research <query>",
-            "Perform deep research on your indexed papers",
-            "research transformer models"
+            "find <query>",
+            "Find and download papers from ArXiv",
+            "find neural networks",
+            "initial"
         )
         help_table.add_row(
             "list",
-            "Show all downloaded papers with pagination",
-            "list"
+            "Show all downloaded papers",
+            "list",
+            "any"
         )
+
+        # Paper processing commands
+        help_table.add_row(
+            "summarize <id>",
+            "Generate summary for a paper",
+            "summarize 1",
+            "select-*"
+        )
+        help_table.add_row(
+            "summary <id>",
+            "View existing paper summary",
+            "summary 2503.22738",
+            "select-view"
+        )
+        help_table.add_row(
+            "open <id>",
+            "View paper content (PDF location)",
+            "open 1",
+            "select-view"
+        )
+
+        # Search and research commands
+        help_table.add_row(
+            "sem-search <query>",
+            "Semantic search across papers",
+            "sem-search agent safety",
+            "any"
+        )
+        help_table.add_row(
+            "research <query>",
+            "Deep research on indexed papers",
+            "research transformer models",
+            "any"
+        )
+
+        # Content management commands
+        help_table.add_row(
+            "improve <feedback>",
+            "Improve current content with feedback",
+            "improve add more details",
+            "summarized, sem-search, research"
+        )
+        help_table.add_row(
+            "notes",
+            "Edit personal notes for selected paper",
+            "notes",
+            "summarized"
+        )
+        help_table.add_row(
+            "save",
+            "Save current content to file",
+            "save",
+            "summarized, sem-search, research"
+        )
+
+        # System commands
         help_table.add_row(
             "rebuild-index",
-            "Rebuild content and summary indexes from all files",
-            "rebuild-index"
+            "Rebuild all indexes from files",
+            "rebuild-index",
+            "any"
         )
         help_table.add_row(
-            "select <number>", 
-            "Select a paper from search results", 
-            "select 1"
+            "status",
+            "Show current workflow status",
+            "status",
+            "any"
         )
         help_table.add_row(
-            "improve <feedback>", 
-            "Improve current summary", 
-            "improve make it more detailed"
+            "history",
+            "Show conversation history",
+            "history",
+            "any"
         )
         help_table.add_row(
-            "save", 
-            "Save the current summary", 
-            "save"
+            "clear",
+            "Clear history and reset state",
+            "clear",
+            "any"
         )
         help_table.add_row(
-            "status", 
-            "Show current workflow status", 
-            "status"
+            "help",
+            "Show this help message",
+            "help",
+            "any"
         )
         help_table.add_row(
-            "history", 
-            "Show conversation history", 
-            "history"
+            "quit/exit",
+            "Exit the chat",
+            "quit",
+            "any"
         )
-        help_table.add_row(
-            "clear", 
-            "Clear conversation history", 
-            "clear"
-        )
-        help_table.add_row(
-            "help", 
-            "Show this help message", 
-            "help"
-        )
-        help_table.add_row(
-            "quit/exit", 
-            "Exit the chat", 
-            "quit"
-        )
-        
+
         self.console.print(help_table)
+
+        # Show current state and valid commands
+        current_state = self.state_machine.current_state.value
+        valid_commands = [cmd.split()[0] for cmd in self.state_machine.get_valid_commands()[:8]]
+
+        state_info = f"""
+**Current State:** {current_state}
+**Currently Valid Commands:** {', '.join(valid_commands)}{'...' if len(self.state_machine.get_valid_commands()) > 8 else ''}
+
+Use 'status' for detailed state information.
+        """
+
+        self.console.print(Panel(
+            state_info.strip(),
+            title="🎯 Current Context",
+            border_style="blue"
+        ))
     
     def show_status(self):
         """Display current status."""
+        # Get state machine info
+        state_name = self.state_machine.current_state.value
+        state_desc = self.state_machine.get_state_description()
+        valid_commands = self.state_machine.get_valid_commands()
+
+        # Get state variables info
+        sv = self.state_machine.state_vars
+        query_info = f"{len(sv.last_query_set)} papers" if sv.last_query_set else "None"
+        selected_info = sv.selected_paper.title if sv.selected_paper else "None"
+        draft_info = "Yes" if sv.draft else "None"
+
         status_panel = Panel(
             f"""
-**Current State:** {self.current_state}
-**Papers in Context:** {len(self.current_papers)}
+**Current State:** {state_name}
+**State Description:** {state_desc}
+**Query Results:** {query_info}
+**Selected Paper:** {selected_info}
+**Draft Content:** {draft_info}
 **Conversation Messages:** {len(self.conversation_history)}
-**File Locations:** 
+
+**Valid Commands:** {', '.join(valid_commands[:5])}{'...' if len(valid_commands) > 5 else ''}
+
+**File Locations:**
   • PDFs: {FILE_LOCATIONS.pdfs_dir}
   • Summaries: {FILE_LOCATIONS.summaries_dir}
   • Index: {FILE_LOCATIONS.index_dir}
+  • Notes: {FILE_LOCATIONS.notes_dir}
+  • Results: {FILE_LOCATIONS.results_dir}
             """,
             title="📊 Current Status",
             border_style="yellow"
@@ -244,18 +326,32 @@ Welcome to your interactive research assistant! I can help you:
             # Use the workflow system for paper search
             result = await self.workflow_runner.start_add_paper_workflow(query)
 
-            # Check if result contains papers (from SearchResult wrapper)
-            if hasattr(result, 'papers') and hasattr(result, 'message'):
-                # Extract papers and store them for selection
-                self.current_papers = result.papers
-                self.current_state = "paper_selection"
-            elif result and not result.startswith("❌") and not result.startswith("No papers"):
-                self.current_state = "paper_selection"
+            # Handle the new QueryResult format
+            if hasattr(result, 'success'):
+                if result.success and result.papers:
+                    # Store papers for selection and update state machine
+                    self.current_papers = result.papers
+                    self.state_machine.transition_after_find(True)
+                    self.state_machine.state_vars.set_query_results(result.paper_ids)
+                    self.current_state = "paper_selection"
+                else:
+                    # Handle failure case
+                    self.interface_adapter.show_error(result.message)
+                    self.state_machine.transition_to_initial("No papers found")
+                    self.current_state = "ready"
             else:
-                self.current_state = "ready"
+                # Backward compatibility for old format
+                if hasattr(result, 'papers') and hasattr(result, 'message'):
+                    self.current_papers = result.papers
+                    self.current_state = "paper_selection"
+                elif result and not result.startswith("❌") and not result.startswith("No papers"):
+                    self.current_state = "paper_selection"
+                else:
+                    self.current_state = "ready"
 
         except Exception as e:
             self.interface_adapter.show_error(f"Search failed: {str(e)}")
+            self.state_machine.transition_to_initial(f"Error: {str(e)}")
             self.current_state = "ready"
     
     async def process_select_command(self, selection: str):
@@ -343,71 +439,87 @@ Welcome to your interactive research assistant! I can help you:
         try:
             result = await self.workflow_runner.start_semantic_search_workflow(query)
 
-            if result and not result.startswith("❌"):
-                # Display the result to the user
-                self.render_markdown_response(result)
-                # Add to history
-                self.add_to_history("assistant", result)
+            # Handle the new QueryResult format
+            if hasattr(result, 'success'):
+                if result.success and result.content:
+                    # Display the result to the user
+                    self.render_markdown_response(result.content)
+                    # Add to history
+                    self.add_to_history("assistant", result.content)
 
-            # Reset state
+                    # Update state machine
+                    self.state_machine.transition_after_sem_search(
+                        found_results=True,
+                        search_results=result.content,
+                        paper_ids=result.paper_ids,
+                        original_query=query
+                    )
+                else:
+                    # Handle failure case
+                    self.interface_adapter.show_error(result.message)
+                    self.state_machine.transition_to_initial("No search results")
+            else:
+                # Backward compatibility for old string format
+                if result and not result.startswith("❌"):
+                    self.render_markdown_response(result)
+                    self.add_to_history("assistant", result)
+
+            # Update current_state for backward compatibility
             self.current_state = "ready"
 
         except Exception as e:
             self.interface_adapter.show_error(f"Semantic search failed: {str(e)}")
+            self.state_machine.transition_to_initial(f"Error: {str(e)}")
             self.current_state = "ready"
     
     async def process_list_command(self):
-        """Process a list command to show all downloaded papers."""
-        from .arxiv_downloader import get_downloaded_paper_ids, get_paper_metadata
+        """Process a list command to show all downloaded papers with pagination."""
         import math
-        
+        from rich.table import Table
+        from rich.prompt import Prompt
+
         try:
-            self.console.print("📋 [bold blue]Listing downloaded papers...[/bold blue]\n")
-            
-            # Get list of downloaded paper IDs
-            paper_ids = get_downloaded_paper_ids(FILE_LOCATIONS)
-            
-            if not paper_ids:
-                self.console.print("📭 [yellow]No papers have been downloaded yet.[/yellow]")
-                self.console.print("💡 [dim]Use 'find <query>' to find and download papers.[/dim]")
+            # Use the workflow to get the list of papers
+            result = await self.workflow_runner.get_list_of_papers()
+
+            if not (hasattr(result, 'success') and result.success):
+                # Handle failure
+                error_msg = result.message if hasattr(result, 'message') else "Failed to list papers"
+                self.interface_adapter.show_error(error_msg)
                 return
-            
-            # Get paper metadata for each ID and sort by title
-            papers_with_metadata = []
-            failed_papers = []
-            
-            with self.console.status(f"[bold green]Loading metadata for {len(paper_ids)} papers..."):
-                for paper_id in paper_ids:
-                    try:
-                        metadata = get_paper_metadata(paper_id)
-                        papers_with_metadata.append(metadata)
-                    except Exception as e:
-                        failed_papers.append((paper_id, str(e)))
-            
-            # Sort papers alphabetically by title
-            papers_with_metadata.sort(key=lambda p: p.title.lower())
-            
+
+            # If no papers, show the simple message without pagination
+            if not result.papers:
+                self.render_markdown_response(result.content)
+                self.add_to_history("assistant", result.content)
+                self.state_machine.transition_after_list()
+                self.state_machine.state_vars.set_query_results(result.paper_ids)
+                return
+
             # Display papers with pagination
+            self.console.print("📋 [bold blue]Downloaded Papers[/bold blue]\n")
+
+            papers = result.papers
             papers_per_page = 10  # Show 10 papers per page
-            total_papers = len(papers_with_metadata)
+            total_papers = len(papers)
             total_pages = math.ceil(total_papers / papers_per_page) if total_papers > 0 else 1
-            
+
             current_page = 1
-            
+
             while True:
                 # Calculate start and end indices for current page
                 start_idx = (current_page - 1) * papers_per_page
                 end_idx = min(start_idx + papers_per_page, total_papers)
-                current_papers = papers_with_metadata[start_idx:end_idx]
-                
+                current_papers = papers[start_idx:end_idx]
+
                 # Create table for current page
-                table = Table(title=f"Downloaded Papers (Page {current_page}/{total_pages})")
-                table.add_column("Index", style="cyan", no_wrap=True, width=6)
-                table.add_column("Paper ID", style="yellow", no_wrap=True, width=12)
-                table.add_column("Title", style="white", width=60)
-                table.add_column("Authors", style="green", width=30)
+                table = Table(title=f"Page {current_page}/{total_pages}")
+                table.add_column("#", style="cyan", no_wrap=True, width=4)
+                table.add_column("Paper ID", style="yellow", no_wrap=True, width=14)
+                table.add_column("Title", style="white", width=55)
+                table.add_column("Authors", style="green", width=25)
                 table.add_column("Published", style="blue", no_wrap=True, width=10)
-                
+
                 # Add papers to table
                 for i, paper in enumerate(current_papers, start=start_idx + 1):
                     # Truncate long titles and author lists for display
@@ -417,9 +529,9 @@ Welcome to your interactive research assistant! I can help you:
                         authors += f" +{len(paper.authors) - 2} more"
                     if len(authors) > 27:
                         authors = authors[:24] + "..."
-                    
+
                     published_date = paper.published.strftime('%Y-%m-%d')
-                    
+
                     table.add_row(
                         str(i),
                         paper.paper_id,
@@ -427,21 +539,17 @@ Welcome to your interactive research assistant! I can help you:
                         authors,
                         published_date
                     )
-                
+
                 # Display the table
                 self.console.print(table)
-                
+
                 # Show pagination info and controls
                 if total_pages > 1:
                     pagination_text = f"\n📄 Page {current_page} of {total_pages} • Total: {total_papers} papers"
-                    if failed_papers:
-                        pagination_text += f" • {len(failed_papers)} failed to load"
-                    
                     self.console.print(pagination_text)
-                    
+
                     if current_page < total_pages:
                         self.console.print("[dim]Press Enter for next page, or type any other key to exit[/dim]")
-                        from rich.prompt import Prompt
                         user_input = Prompt.ask("", console=self.console, default="")
                         if user_input != "":
                             break
@@ -452,19 +560,28 @@ Welcome to your interactive research assistant! I can help you:
                 else:
                     # Single page, just show total
                     total_text = f"\n📊 Total: {total_papers} paper{'s' if total_papers != 1 else ''}"
-                    if failed_papers:
-                        total_text += f" • {len(failed_papers)} failed to load"
                     self.console.print(total_text)
                     break
-            
-            # Show any failed papers
-            if failed_papers:
-                self.console.print(f"\n⚠️ [yellow]Failed to load metadata for {len(failed_papers)} paper(s):[/yellow]")
-                for paper_id, error in failed_papers[:3]:  # Show first 3 failures
-                    self.console.print(f"  • {paper_id}: {error}")
-                if len(failed_papers) > 3:
-                    self.console.print(f"  • ... and {len(failed_papers) - 3} more")
-            
+
+            # Show summary information and next steps
+            self.console.print(f"\n💾 **Storage Locations:**")
+            self.console.print(f"• PDFs: `{self.workflow_runner.workflow.file_locations.pdfs_dir}`")
+            self.console.print(f"• Summaries: `{self.workflow_runner.workflow.file_locations.summaries_dir}`")
+            self.console.print(f"• Index: `{self.workflow_runner.workflow.file_locations.index_dir}`")
+
+            self.console.print(f"\n💡 **Next steps:**")
+            self.console.print("• Use `summary <number|id>` to view existing summaries")
+            self.console.print("• Use `open <number|id>` to view paper content")
+            self.console.print("• Use `sem-search <query>` to search across papers")
+
+            # Update state machine
+            self.state_machine.transition_after_list()
+            self.state_machine.state_vars.set_query_results(result.paper_ids)
+
+            # Add simplified content to history (for later reference)
+            history_content = f"Listed {len(papers)} downloaded papers with pagination. Available paper IDs: {', '.join(result.paper_ids[:5])}{'...' if len(result.paper_ids) > 5 else ''}"
+            self.add_to_history("assistant", history_content)
+
         except Exception as e:
             self.interface_adapter.show_error(f"List command failed: {str(e)}")
 
@@ -490,6 +607,317 @@ Welcome to your interactive research assistant! I can help you:
 
         except Exception as e:
             self.interface_adapter.show_error(f"Index rebuild failed: {str(e)}")
+
+    async def process_summarize_command(self, reference: str):
+        """Process a summarize command for the new state machine workflow."""
+        from .paper_manager import resolve_paper_reference, get_available_papers_from_query_set
+
+        try:
+            # Get available papers based on current state
+            available_papers = []
+            if self.state_machine.state_vars.last_query_set:
+                available_papers = get_available_papers_from_query_set(
+                    self.state_machine.state_vars.last_query_set,
+                    FILE_LOCATIONS
+                )
+
+            # Resolve paper reference
+            paper, error_msg = resolve_paper_reference(reference, available_papers, "summarization")
+            if not paper:
+                self.interface_adapter.show_error(error_msg)
+                return
+
+            # Use the workflow system to process the paper
+            result = await self.workflow_runner.process_paper_selection(paper)
+
+            # Handle the result and update state machine
+            if hasattr(result, 'paper') and hasattr(result, 'summary'):
+                # Store the summary in state machine
+                self.state_machine.transition_after_summarize(result.paper, result.summary)
+
+                # Display the summary
+                self.render_markdown_response(result.summary)
+                self.add_to_history("assistant", result.summary)
+
+                self.interface_adapter.show_info("✨ You can now:")
+                self.interface_adapter.show_info("• Use 'improve <feedback>' to refine the summary")
+                self.interface_adapter.show_info("• Use 'notes' to edit your personal notes")
+            else:
+                self.interface_adapter.show_error("Failed to generate summary")
+
+        except Exception as e:
+            self.interface_adapter.show_error(f"Summarize failed: {str(e)}")
+
+    async def process_summary_command(self, reference: str):
+        """Process a summary command to view an existing paper summary."""
+        from .paper_manager import resolve_paper_reference, get_available_papers_from_query_set, load_paper_summary
+        from rich.prompt import Confirm
+
+        try:
+            # Get available papers based on current state
+            available_papers = []
+            if self.state_machine.state_vars.last_query_set:
+                available_papers = get_available_papers_from_query_set(
+                    self.state_machine.state_vars.last_query_set,
+                    FILE_LOCATIONS
+                )
+
+            # Resolve paper reference
+            paper, error_msg = resolve_paper_reference(reference, available_papers, "summary viewing")
+            if not paper:
+                self.interface_adapter.show_error(error_msg)
+                return
+
+            # Load existing summary
+            success, content = load_paper_summary(paper.paper_id, FILE_LOCATIONS)
+            if not success:
+                # Summary is missing - offer to create one
+                self.console.print(f"📄 [yellow]Summary not found for paper:[/yellow] {paper.title}")
+                self.console.print(f"📋 [dim]Paper ID:[/dim] {paper.paper_id}")
+                self.console.print()
+
+                # Ask if user wants to create a summary
+                create_summary = Confirm.ask(
+                    "Would you like me to create a summary for this paper?",
+                    console=self.console,
+                    default=True
+                )
+
+                if create_summary:
+                    self.console.print("🤖 [bold blue]Creating summary...[/bold blue]")
+                    # Call the summarize command implementation
+                    await self._create_summary_for_paper(paper)
+                else:
+                    self.interface_adapter.show_info("No summary created. You can create one later with 'summarize <number|id>'.")
+                return
+
+            # Update state machine and display summary
+            self.state_machine.transition_after_summary_view(paper, content)
+            self.render_markdown_response(content)
+            self.add_to_history("assistant", content)
+
+            self.interface_adapter.show_info("✨ You can now:")
+            self.interface_adapter.show_info("• Use 'improve <feedback>' to refine the summary")
+            self.interface_adapter.show_info("• Use 'notes' to edit your personal notes")
+            self.interface_adapter.show_info("• Use 'open <number|id>' to view the full paper")
+
+        except Exception as e:
+            self.interface_adapter.show_error(f"Summary view failed: {str(e)}")
+
+    async def _create_summary_for_paper(self, paper):
+        """Helper method to create a summary for a paper (used by summary command when missing)."""
+        try:
+            # Use the workflow system to process the paper
+            result = await self.workflow_runner.process_paper_selection(paper)
+
+            # Handle the result and update state machine
+            if hasattr(result, 'paper') and hasattr(result, 'summary'):
+                # Store the summary in state machine
+                self.state_machine.transition_after_summarize(result.paper, result.summary)
+
+                # Display the summary
+                self.render_markdown_response(result.summary)
+                self.add_to_history("assistant", result.summary)
+
+                self.interface_adapter.show_info("✅ [bold green]Summary created successfully![/bold green]")
+                self.interface_adapter.show_info("✨ You can now:")
+                self.interface_adapter.show_info("• Use 'improve <feedback>' to refine the summary")
+                self.interface_adapter.show_info("• Use 'notes' to edit your personal notes")
+            else:
+                self.interface_adapter.show_error("Failed to generate summary")
+
+        except Exception as e:
+            self.interface_adapter.show_error(f"Summary creation failed: {str(e)}")
+
+    async def process_open_command(self, reference: str):
+        """Process an open command to view paper content."""
+        from .paper_manager import resolve_paper_reference, get_available_papers_from_query_set
+        from .result_storage import open_paper_content
+
+        try:
+            # Get available papers based on current state
+            available_papers = []
+            if self.state_machine.state_vars.last_query_set:
+                available_papers = get_available_papers_from_query_set(
+                    self.state_machine.state_vars.last_query_set,
+                    FILE_LOCATIONS
+                )
+
+            # Resolve paper reference
+            paper, error_msg = resolve_paper_reference(reference, available_papers, "paper viewing")
+            if not paper:
+                self.interface_adapter.show_error(error_msg)
+                return
+
+            # Open paper content
+            success, content = open_paper_content(paper.paper_id, FILE_LOCATIONS)
+            if not success:
+                self.interface_adapter.show_error(content)  # content contains error message
+                return
+
+            # Display the content
+            self.render_markdown_response(content)
+            self.add_to_history("assistant", content)
+
+            # Stay in current state (open doesn't change state)
+            self.state_machine.stay_in_current_state()
+
+        except Exception as e:
+            self.interface_adapter.show_error(f"Open failed: {str(e)}")
+
+    async def process_notes_command(self):
+        """Process a notes command to edit paper notes."""
+        from .result_storage import edit_notes_for_paper
+
+        try:
+            # Check if we have a selected paper
+            if not self.state_machine.state_vars.selected_paper:
+                self.interface_adapter.show_error("No paper selected. Select a paper first with 'summarize' or 'summary'.")
+                return
+
+            # Get paper ID
+            paper_id = self.state_machine.state_vars.selected_paper.paper_id
+
+            # Handle notes editing
+            success, message = edit_notes_for_paper(paper_id, FILE_LOCATIONS)
+            if success:
+                self.render_markdown_response(message)
+            else:
+                self.interface_adapter.show_error(message)
+
+            # Stay in current state (notes doesn't change state)
+            self.state_machine.stay_in_current_state()
+
+        except Exception as e:
+            self.interface_adapter.show_error(f"Notes failed: {str(e)}")
+
+    async def process_save_workflow_command(self):
+        """Process a save command for workflow results (semantic search/research)."""
+        from .result_storage import save_search_results
+
+        try:
+            # Check if we have draft content to save
+            if not self.state_machine.state_vars.draft:
+                self.interface_adapter.show_error("No content to save. Run a semantic search or research query first.")
+                return
+
+            # Check if we have the original query
+            if not self.state_machine.state_vars.original_query:
+                self.interface_adapter.show_error("No original query found. Unable to generate proper title.")
+                return
+
+            # Determine content type based on current state
+            content_type = "research" if self.state_machine.current_state.value == "research" else "search"
+
+            # Save the content using the original query for title generation
+            file_path, title = await save_search_results(
+                content=self.state_machine.state_vars.draft,
+                query=self.state_machine.state_vars.original_query,
+                file_locations=FILE_LOCATIONS,
+                content_type=content_type
+            )
+
+            # Show success message
+            success_msg = f"""✅ **{content_type.title()} results saved successfully!**
+
+**File:** {file_path}
+**Title:** {title}
+
+The content has been saved to your results directory and can be referenced later."""
+
+            self.render_markdown_response(success_msg)
+            self.add_to_history("assistant", success_msg)
+
+            # Stay in current state (save doesn't change state)
+            self.state_machine.stay_in_current_state()
+
+        except Exception as e:
+            self.interface_adapter.show_error(f"Save failed: {str(e)}")
+
+    async def process_improve_workflow_command(self, feedback: str):
+        """Process an improve command for workflow content."""
+        try:
+            # Check current state and available content
+            if self.state_machine.current_state.value == "summarized":
+                # Improve paper summary
+                if not self.state_machine.state_vars.selected_paper or not self.state_machine.state_vars.draft:
+                    self.interface_adapter.show_error("No summary to improve. Summarize a paper first.")
+                    return
+
+                # Use workflow to improve summary
+                result = await self.workflow_runner.improve_summary(
+                    self.state_machine.state_vars.selected_paper,
+                    self.state_machine.state_vars.draft,
+                    "",  # paper_text not needed for improvement
+                    feedback
+                )
+
+                if hasattr(result, 'summary'):
+                    # Update the draft content
+                    self.state_machine.state_vars.set_draft(result.summary)
+                    self.render_markdown_response(result.summary)
+                    self.add_to_history("assistant", result.summary)
+
+                    self.interface_adapter.show_info("✨ Summary improved! You can continue to improve or save.")
+
+            elif self.state_machine.current_state.value in ["sem-search", "research"]:
+                # Improve search/research results
+                if not self.state_machine.state_vars.draft:
+                    self.interface_adapter.show_error("No content to improve. Run a search or research query first.")
+                    return
+
+                # Use workflow to improve content
+                result = await self.workflow_runner.improve_content(self.state_machine.state_vars.draft, feedback)
+
+                if hasattr(result, 'content'):
+                    # Update the draft content
+                    self.state_machine.state_vars.set_draft(result.content)
+                    self.render_markdown_response(result.content)
+                    self.add_to_history("assistant", result.content)
+
+                    self.interface_adapter.show_info("✨ Content improved! You can continue to improve or save.")
+            else:
+                self.interface_adapter.show_error("Nothing to improve in current state. Summarize a paper or run a search first.")
+
+            # Stay in current state
+            self.state_machine.stay_in_current_state()
+
+        except Exception as e:
+            self.interface_adapter.show_error(f"Improve failed: {str(e)}")
+
+    async def process_research_command(self, query: str):
+        """Process a research command using the workflow system."""
+        try:
+            result = await self.workflow_runner.start_semantic_search_workflow(query)
+
+            # Handle the new QueryResult format
+            if hasattr(result, 'success'):
+                if result.success and result.content:
+                    # Display the result to the user
+                    self.render_markdown_response(result.content)
+                    # Add to history
+                    self.add_to_history("assistant", result.content)
+
+                    # Update state machine - transition to research state
+                    self.state_machine.transition_after_research(
+                        found_results=True,
+                        research_results=result.content,
+                        paper_ids=result.paper_ids,
+                        original_query=query
+                    )
+                else:
+                    # Handle failure case
+                    self.interface_adapter.show_error(result.message)
+                    self.state_machine.transition_to_initial("No research results")
+            else:
+                # Backward compatibility for old string format
+                if result and not result.startswith("❌"):
+                    self.render_markdown_response(result)
+                    self.add_to_history("assistant", result)
+
+        except Exception as e:
+            self.interface_adapter.show_error(f"Research failed: {str(e)}")
+            self.state_machine.transition_to_initial(f"Error: {str(e)}")
 
     async def run_chat_loop(self):
         """Main chat loop."""
@@ -518,70 +946,105 @@ Welcome to your interactive research assistant! I can help you:
                 if user_input.lower() in ['quit', 'exit', 'q']:
                     self.console.print("👋 [bold blue]Goodbye! Happy researching![/bold blue]")
                     break
-                
+
+                # Extract command name for validation
+                cmd_parts = user_input.strip().split(None, 1)
+                cmd_name = cmd_parts[0].lower() if cmd_parts else ""
+                cmd_arg = cmd_parts[1] if len(cmd_parts) > 1 else ""
+
+                # Check if command is valid in current state (skip global commands)
+                global_commands = ["help", "status", "history", "clear", "quit", "exit", "rebuild-index"]
+                if cmd_name not in global_commands and not self.state_machine.is_command_valid(user_input):
+                    valid_cmds = [cmd for cmd in self.state_machine.get_valid_commands()
+                                 if not cmd.split()[0] in global_commands][:5]
+                    self.interface_adapter.show_error(
+                        f"Command '{cmd_name}' not valid in current state. "
+                        f"Valid commands: {', '.join(valid_cmds)}{'...' if len(valid_cmds) == 5 else ''}"
+                    )
+                    continue
+
                 # Handle special commands
-                elif user_input.lower() == 'help':
+                if cmd_name == 'help':
                     self.show_help()
-                
-                elif user_input.lower() == 'status':
+
+                elif cmd_name == 'status':
                     self.show_status()
-                
-                elif user_input.lower() == 'history':
+
+                elif cmd_name == 'history':
                     self.show_history()
-                
-                elif user_input.lower() == 'clear':
+
+                elif cmd_name == 'clear':
                     self.clear_history()
-                
-                elif user_input.lower().startswith('find '):
-                    query = user_input[5:].strip()
-                    if query:
-                        await self.process_search_command(query)
+                    self.state_machine.reset()  # Reset state machine on clear
+
+                elif cmd_name == 'rebuild-index':
+                    await self.process_rebuild_index_command()
+
+                # Handle workflow commands
+                elif cmd_name == 'find':
+                    if cmd_arg:
+                        await self.process_search_command(cmd_arg)
                     else:
                         self.console.print("❌ [red]Please provide a search query[/red]")
-                
-                elif user_input.lower().startswith('select '):
-                    selection = user_input[7:].strip()
-                    if selection:
-                        await self.process_select_command(selection)
+
+                elif cmd_name == 'summarize':
+                    if cmd_arg:
+                        await self.process_summarize_command(cmd_arg)
                     else:
-                        self.console.print("❌ [red]Please provide a selection number[/red]")
-                
-                elif user_input.lower().startswith('improve '):
-                    feedback = user_input[8:].strip()
-                    if feedback:
-                        await self.process_improve_command(feedback)
+                        self.console.print("❌ [red]Please provide a paper number or ID[/red]")
+
+                elif cmd_name == 'summary':
+                    if cmd_arg:
+                        await self.process_summary_command(cmd_arg)
+                    else:
+                        self.console.print("❌ [red]Please provide a paper number or ID[/red]")
+
+                elif cmd_name == 'open':
+                    if cmd_arg:
+                        await self.process_open_command(cmd_arg)
+                    else:
+                        self.console.print("❌ [red]Please provide a paper number or ID[/red]")
+
+                elif cmd_name == 'notes':
+                    await self.process_notes_command()
+
+                elif cmd_name == 'improve':
+                    if cmd_arg:
+                        await self.process_improve_workflow_command(cmd_arg)
                     else:
                         self.console.print("❌ [red]Please provide improvement feedback[/red]")
-                
-                elif user_input.lower() == 'save':
-                    await self.process_save_command()
-                
-                elif user_input.lower().startswith('semantic-search ') or user_input.lower().startswith('sem-search '):
-                    # Handle both semantic-search and sem-search commands
-                    if user_input.lower().startswith('semantic-search '):
-                        query = user_input[16:].strip()  # "semantic-search " is 16 chars
-                    else:
-                        query = user_input[11:].strip()  # "sem-search " is 11 chars
 
-                    if query:
-                        await self.process_semantic_search_command(query)
+                elif cmd_name == 'save':
+                    # Handle save differently based on current state
+                    if self.state_machine.current_state.value == "summarized":
+                        # Save paper summary using old method for now
+                        await self.process_save_command()
+                    else:
+                        # Save workflow results (search/research)
+                        await self.process_save_workflow_command()
+
+                elif cmd_name in ['sem-search', 'semantic-search']:
+                    if cmd_arg:
+                        await self.process_semantic_search_command(cmd_arg)
                     else:
                         self.console.print("❌ [red]Please provide a search query[/red]")
 
-                elif user_input.lower().startswith('research '):
-                    # Handle research command (calls same underlying implementation as sem-search)
-                    query = user_input[9:].strip()  # "research " is 9 chars
-
-                    if query:
-                        await self.process_semantic_search_command(query)
+                elif cmd_name == 'research':
+                    if cmd_arg:
+                        # Research command uses same implementation as sem-search but may transition to different state
+                        await self.process_research_command(cmd_arg)
                     else:
                         self.console.print("❌ [red]Please provide a research query[/red]")
 
-                elif user_input.lower() == 'list':
+                elif cmd_name == 'list':
                     await self.process_list_command()
 
-                elif user_input.lower() == 'rebuild-index':
-                    await self.process_rebuild_index_command()
+                # Legacy commands for backward compatibility during transition
+                elif cmd_name == 'select':
+                    if cmd_arg:
+                        await self.process_select_command(cmd_arg)
+                    else:
+                        self.console.print("❌ [red]Please provide a selection number[/red]")
 
                 else:
                     self.interface_adapter.show_info("Unknown command. Type 'help' for available commands.")

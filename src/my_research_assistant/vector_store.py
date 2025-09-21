@@ -539,10 +539,10 @@ def search_index(query:str, k:int=5, file_locations:FileLocations=FILE_LOCATIONS
     -> list[SearchResult]:
     """
     Search the content index for papers matching the query.
-    
+
     This function searches through the content index (PDF documents) for chunks matching
     the query and returns structured SearchResult objects.
-    
+
     Parameters
     ----------
     query : str
@@ -551,24 +551,33 @@ def search_index(query:str, k:int=5, file_locations:FileLocations=FILE_LOCATIONS
         Maximum number of results to return (default: 5)
     file_locations : FileLocations, optional
         File locations configuration
-        
+
     Returns
     -------
     list[SearchResult]
         List of search results from the content index
-        
+
     Raises
     ------
     IndexError
-        If the content index cannot be loaded
+        If the content index cannot be loaded or does not exist
     RetrievalError
         If there's an error processing search results
     """
-    # Get the content index
-    try:
-        content_index = _get_or_initialize_index(file_locations, "content")
-    except Exception as e:
-        raise IndexError(f"Error loading content index: {e}")
+    # Get the content index - use global if available, otherwise try to load existing
+    global CONTENT_INDEX
+
+    if CONTENT_INDEX is not None:
+        content_index = CONTENT_INDEX
+    else:
+        # For search operations, we require an existing database rather than creating a new one
+        try:
+            content_index = _load_existing_chroma_vector_store(file_locations, "content")
+            CONTENT_INDEX = content_index  # Cache it for future use
+        except IndexError as e:
+            raise IndexError(f"No existing ChromaDB found at expected location. {e}")
+        except Exception as e:
+            raise IndexError(f"Error loading content index: {e}")
     
     # Run the query
     retriever = content_index.as_retriever(similarity_top_k=k)
@@ -598,10 +607,10 @@ def search_summary_index(query:str, k:int=5, file_locations:FileLocations=FILE_L
     -> list[SearchResult]:
     """
     Search the summary index for papers matching the query.
-    
+
     This function searches through the summary index (summaries and notes) for chunks matching
     the query and returns structured SearchResult objects.
-    
+
     Parameters
     ----------
     query : str
@@ -610,24 +619,33 @@ def search_summary_index(query:str, k:int=5, file_locations:FileLocations=FILE_L
         Maximum number of results to return (default: 5)
     file_locations : FileLocations, optional
         File locations configuration
-        
+
     Returns
     -------
     list[SearchResult]
         List of search results from the summary index
-        
+
     Raises
     ------
     IndexError
-        If the summary index cannot be loaded
+        If the summary index cannot be loaded or does not exist
     RetrievalError
         If there's an error processing search results
     """
-    # Get the summary index
-    try:
-        summary_index = _get_or_initialize_index(file_locations, "summary")
-    except Exception as e:
-        raise IndexError(f"Error loading summary index: {e}")
+    # Get the summary index - use global if available, otherwise try to load existing
+    global SUMMARY_INDEX
+
+    if SUMMARY_INDEX is not None:
+        summary_index = SUMMARY_INDEX
+    else:
+        # For search operations, we require an existing database rather than creating a new one
+        try:
+            summary_index = _load_existing_chroma_vector_store(file_locations, "summary")
+            SUMMARY_INDEX = summary_index  # Cache it for future use
+        except IndexError as e:
+            raise IndexError(f"No existing ChromaDB found at expected location. {e}")
+        except Exception as e:
+            raise IndexError(f"Error loading summary index: {e}")
     
     # Run the query
     retriever = summary_index.as_retriever(similarity_top_k=k)

@@ -47,6 +47,7 @@ The workflow system is designed to work with multiple interface types:
 
 from pydantic import Field
 from typing import List, Optional
+from dataclasses import dataclass
 from llama_index.core.workflow import (
     Event,
     Workflow,
@@ -64,6 +65,35 @@ from .vector_store import index_file, search_index
 from .summarizer import summarize_paper, save_summary
 from .project_types import PaperMetadata, SearchResult
 from .interface_adapter import InterfaceAdapter
+
+
+# Define result classes for structured workflow returns
+@dataclass
+class QueryResult:
+    """Result from a query operation (find, sem-search, research, list)."""
+    success: bool
+    papers: List[PaperMetadata]
+    paper_ids: List[str]
+    message: str
+    content: Optional[str] = None  # For search/research results
+
+
+@dataclass
+class ProcessingResult:
+    """Result from a processing operation (summarize, improve, etc.)."""
+    success: bool
+    paper: Optional[PaperMetadata]
+    content: str
+    message: str
+
+
+@dataclass
+class SaveResult:
+    """Result from a save operation."""
+    success: bool
+    file_path: Optional[str]
+    title: Optional[str]
+    message: str
 
 
 # Define custom events for the workflow
@@ -441,37 +471,42 @@ class WorkflowRunner:
         self.interface = interface
         self.current_state = None
     
-    async def start_add_paper_workflow(self, query: str):
+    async def start_add_paper_workflow(self, query: str) -> QueryResult:
         """Start the add paper workflow with a search query"""
         handler = self.workflow.run(query=query)
 
         found_papers = None
+        result_message = ""
+
         async for event in handler.stream_events():
             # Capture papers when search results are found
             if isinstance(event, SearchResultsEvent):
                 found_papers = event.papers
 
             if isinstance(event, StopEvent):
+                result_message = event.result
                 print(event.result)
 
-                # If we found papers and the workflow is waiting for selection,
-                # return a special result that includes the papers
-                if found_papers and "awaiting selection" in event.result:
-                    class SearchResult:
-                        def __init__(self, message, papers):
-                            self.message = message
-                            self.papers = papers
-
-                        def startswith(self, prefix):
-                            return self.message.startswith(prefix)
-
-                    return SearchResult(event.result, found_papers)
-
-                return event.result
-
-        return "Add paper workflow completed"
+        # Create structured result
+        if found_papers:
+            paper_ids = [paper.paper_id for paper in found_papers]
+            return QueryResult(
+                success=True,
+                papers=found_papers,
+                paper_ids=paper_ids,
+                message=result_message,
+                content=None
+            )
+        else:
+            return QueryResult(
+                success=False,
+                papers=[],
+                paper_ids=[],
+                message=result_message or "No papers found",
+                content=None
+            )
     
-    async def start_semantic_search_workflow(self, query: str):
+    async def start_semantic_search_workflow(self, query: str) -> QueryResult:
         """Start the enhanced semantic search workflow with RAG summarization"""
         try:
             # Directly call the semantic search methods
@@ -613,10 +648,26 @@ Provide your answer in a clear, well-structured format. Be specific about what t
             final_response += f"---\n\n"
             final_response += f"*Search details: Found {len(results)} relevant chunks across {len(papers_dict)} papers*"
 
-            return final_response
+            # Extract paper IDs from results
+            paper_ids = list(papers_dict.keys())
+
+            return QueryResult(
+                success=True,
+                papers=[],  # Could populate with actual paper metadata if needed
+                paper_ids=paper_ids,
+                message="Semantic search completed successfully",
+                content=final_response
+            )
 
         except Exception as e:
-            return f"❌ Semantic search failed: {str(e)}"
+            error_message = f"❌ Semantic search failed: {str(e)}"
+            return QueryResult(
+                success=False,
+                papers=[],
+                paper_ids=[],
+                message=error_message,
+                content=error_message
+            )
     
     async def process_paper_selection(self, selected_paper: PaperMetadata):
         """Process a selected paper through the complete workflow"""
@@ -690,6 +741,165 @@ You can now find another paper or start a new search."""
             return f"Summary saved successfully: {file_path}"
         except Exception as e:
             raise Exception(f"Summary save failed: {str(e)}")
+
+    async def save_search_results(self, content: str, query: str, content_type: str = "search") -> SaveResult:
+        """Save search or research results to a file with LLM-generated title."""
+        try:
+            # Generate a short title using LLM
+            title_prompt = f"""Generate a short, descriptive title (3-6 words) for this {content_type} query: "{query}"
+
+The title should:
+- Be suitable for a filename
+- Capture the main topic/concept
+- Be concise and clear
+- Use title case
+
+Return only the title, nothing else."""
+
+            title_response = await self.workflow.llm.acomplete(title_prompt)
+            raw_title = title_response.text.strip()
+
+            # Clean the title for filename use
+            import re
+            clean_title = re.sub(r'[^\w\s-]', '', raw_title)
+            clean_title = re.sub(r'\s+', '-', clean_title)
+            clean_title = clean_title.lower()
+
+            # Create filename
+            filename = f"{clean_title}.md"
+            file_path = os.path.join(self.workflow.file_locations.results_dir, filename)
+
+            # Ensure results directory exists
+            self.workflow.file_locations.ensure_results_dir()
+
+            # Create content with metadata
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            full_content = f"""---
+title: {raw_title}
+query: {query}
+type: {content_type}
+created: {timestamp}
+---
+
+{content}
+"""
+
+            # Write to file
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(full_content)
+
+            return SaveResult(
+                success=True,
+                file_path=file_path,
+                title=raw_title,
+                message=f"{content_type.title()} results saved to: {file_path}"
+            )
+
+        except Exception as e:
+            return SaveResult(
+                success=False,
+                file_path=None,
+                title=None,
+                message=f"Failed to save {content_type} results: {str(e)}"
+            )
+
+    async def improve_content(self, current_content: str, feedback: str, content_type: str) -> ProcessingResult:
+        """Improve content (summary, search results, research results) based on feedback."""
+        try:
+            improve_prompt = f"""Improve the following {content_type} based on the user's feedback.
+
+Current {content_type}:
+{current_content}
+
+User feedback: "{feedback}"
+
+Please provide an improved version that addresses the feedback while maintaining the same format and structure."""
+
+            response = await self.workflow.llm.acomplete(improve_prompt)
+            improved_content = response.text.strip()
+
+            return ProcessingResult(
+                success=True,
+                paper=None,
+                content=improved_content,
+                message=f"{content_type.title()} improved successfully"
+            )
+
+        except Exception as e:
+            return ProcessingResult(
+                success=False,
+                paper=None,
+                content=current_content,
+                message=f"Failed to improve {content_type}: {str(e)}"
+            )
+
+    async def get_list_of_papers(self) -> QueryResult:
+        """Get list of all downloaded papers."""
+        try:
+            from .arxiv_downloader import get_downloaded_paper_ids, get_paper_metadata
+            from .paper_manager import format_paper_list
+
+            paper_ids = get_downloaded_paper_ids(self.workflow.file_locations)
+            papers = []
+
+            for paper_id in paper_ids:
+                try:
+                    paper_metadata = get_paper_metadata(paper_id)
+                    if paper_metadata:
+                        papers.append(paper_metadata)
+                except Exception:
+                    continue
+
+            if not papers:
+                content = """# Downloaded Papers
+
+📭 **No papers have been downloaded yet.**
+
+💡 **Get started by finding papers:**
+- Use `find <query>` to search ArXiv and download papers
+- Example: `find machine learning transformers`
+- Papers will be indexed automatically for semantic search"""
+
+                return QueryResult(
+                    success=True,
+                    papers=[],
+                    paper_ids=[],
+                    message="No papers downloaded yet",
+                    content=content
+                )
+
+            # Format the papers list
+            content = format_paper_list(papers, "Downloaded Papers")
+
+            # Add summary information
+            content += f"\n\n## Summary\n\n"
+            content += f"- **Total Papers**: {len(papers)}\n"
+            content += f"- **Storage Location**: `{self.workflow.file_locations.pdfs_dir}`\n"
+            content += f"- **Summaries Location**: `{self.workflow.file_locations.summaries_dir}`\n"
+            content += f"- **Index Location**: `{self.workflow.file_locations.index_dir}`\n\n"
+            content += "💡 **Next steps:**\n"
+            content += "- Use `summary <number|id>` to view existing summaries\n"
+            content += "- Use `open <number|id>` to view paper content\n"
+            content += "- Use `sem-search <query>` to search across papers\n"
+
+            return QueryResult(
+                success=True,
+                papers=papers,
+                paper_ids=paper_ids,
+                message=f"Found {len(papers)} downloaded papers",
+                content=content
+            )
+
+        except Exception as e:
+            return QueryResult(
+                success=False,
+                papers=[],
+                paper_ids=[],
+                message=f"Failed to list papers: {str(e)}",
+                content=f"❌ **Error listing papers**: {str(e)}"
+            )
 
     async def continue_workflow(self, user_input: str, current_papers: Optional[List[PaperMetadata]] = None):
         """Continue the workflow based on user input"""

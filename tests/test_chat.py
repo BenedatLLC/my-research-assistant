@@ -22,9 +22,10 @@ def temp_file_locations():
     # Save the original FILE_LOCATIONS
     original_file_locations = file_locations.FILE_LOCATIONS
     
-    # Also save and reset the global VECTOR_STORE to avoid test pollution
+    # Also save and reset the global indexes to avoid test pollution
     import my_research_assistant.vector_store as vs
-    original_vector_store = vs.VECTOR_STORE
+    original_content_index = vs.CONTENT_INDEX
+    original_summary_index = vs.SUMMARY_INDEX
     original_vs_file_locations = vs.FILE_LOCATIONS
     
     # Create a temporary directory
@@ -35,15 +36,17 @@ def temp_file_locations():
         # Replace the module-level FILE_LOCATIONS
         file_locations.FILE_LOCATIONS = temp_locations
         
-        # Reset the global VECTOR_STORE to None so it gets reinitialized
-        vs.VECTOR_STORE = None
+        # Reset the global indexes to None so they get reinitialized
+        vs.CONTENT_INDEX = None
+        vs.SUMMARY_INDEX = None
         
         try:
             yield temp_locations
         finally:
-            # Restore the original FILE_LOCATIONS and VECTOR_STORE
+            # Restore the original FILE_LOCATIONS and indexes
             file_locations.FILE_LOCATIONS = original_file_locations
-            vs.VECTOR_STORE = original_vector_store
+            vs.CONTENT_INDEX = original_content_index
+            vs.SUMMARY_INDEX = original_summary_index
             vs.FILE_LOCATIONS = original_vs_file_locations
 
 
@@ -64,13 +67,14 @@ class TestChatInterface:
     def test_chat_interface_initialization(self):
         """Test that ChatInterface can be initialized."""
         chat = ChatInterface()
-        
+
         assert chat.console is not None
         assert chat.llm is None  # Not initialized until initialize() is called
         assert chat.workflow_runner is None
         assert chat.conversation_history == []
         assert chat.current_papers == []
-        assert chat.current_state == "ready"
+        assert chat.state_machine is not None
+        assert chat.state_machine.current_state.value == "initial"
     
     @patch('my_research_assistant.chat.get_default_model')
     def test_chat_interface_initialize_success(self, mock_get_model, temp_file_locations):
@@ -162,13 +166,15 @@ class TestChatSemanticSearch:
         test_query = "agent safety and shielding"
         
         # Capture the initial state
-        initial_state = chat.current_state
-        
+        initial_state = chat.state_machine.current_state.value
+        assert initial_state == "initial"
+
         # Execute semantic search command
         await chat.process_semantic_search_command(test_query)
-        
-        # Verify state was reset
-        assert chat.current_state == "ready"
+
+        # Verify state transitioned correctly
+        # Should be in sem-search state if results were found
+        assert chat.state_machine.current_state.value in ["sem-search", "initial"]
         
         # Verify history was updated (should have assistant response)
         assert len(chat.conversation_history) == 1
