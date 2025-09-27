@@ -167,7 +167,10 @@ def format_store_validation_table(statuses: List[PaperStoreStatus]) -> Table:
     table.add_column("Summary\nindex chunks", style="white", justify="center")
     table.add_column("Has\nnotes", style="white", justify="center")
 
-    for status in statuses:
+    # Sort statuses by paper ID to ensure consistent ordering
+    sorted_statuses = sorted(statuses, key=lambda s: s.paper_id)
+
+    for status in sorted_statuses:
         # Format values according to design spec
         has_metadata = "✅" if status.has_metadata else "❌"
         content_chunks = str(status.content_index_chunks) if status.content_index_chunks > 0 else "❌"

@@ -310,11 +310,16 @@ class ResearchAssistantWorkflow(Workflow):
         """Step 8: Save the final summary"""
         paper = ev.paper
         summary = ev.summary
-        
+
         try:
             with self.interface.progress_context(f"💾 Saving summary for: '{paper.title}'..."):
                 file_path = save_summary(summary, paper.paper_id)
-            
+
+            # Index the summary for semantic search
+            with self.interface.progress_context(f"📚 Indexing summary for: '{paper.title}'..."):
+                from .vector_store import index_summary
+                index_summary(paper, self.file_locations)
+
             completion_message = f"""🎉 **Process Complete!**
 
 **Paper:** {paper.title}
@@ -323,11 +328,12 @@ class ResearchAssistantWorkflow(Workflow):
   • Indexed for search
   • Generated summary
   • Saved to filesystem
+  • Indexed summary for search
 
 **Summary Location:** {file_path}
 
 You can now find another paper or start a new search."""
-            
+
             self.interface.render_content(completion_message, "markdown", "✅ Success")
             return StopEvent(result=f"Summary saved successfully: {file_path}")
         except Exception as e:
@@ -343,8 +349,16 @@ You can now find another paper or start a new search."""
         
         try:
             with self.interface.progress_context(f"🔍 Searching local paper index for: '{query}'..."):
-                # Search the local index
-                results = search_index(query, k=10, file_locations=self.file_locations)
+                # Search the local index with enhanced retrieval for better compound query handling
+                # Use MMR with higher k and moderate similarity filtering for diverse, quality results
+                results = search_index(
+                    query,
+                    k=20,  # Increased for compound queries
+                    file_locations=self.file_locations,
+                    use_mmr=True,  # Enable MMR for diversity
+                    similarity_cutoff=0.6,  # Filter low-quality matches
+                    mmr_alpha=0.5  # Balance relevance and diversity
+                )
             
             if not results:
                 self.interface.show_error(f"No results found in local index for '{query}'. Try adding more papers or using different search terms.")
@@ -510,8 +524,15 @@ class WorkflowRunner:
 
             print(f"🔍 Searching local paper index for: '{query}'...")
 
-            # Search the local index with higher k for better coverage
-            results = search_index(query, k=15, file_locations=self.workflow.file_locations)
+            # Search the local index with enhanced retrieval for better compound query handling
+            results = search_index(
+                query,
+                k=20,
+                file_locations=self.workflow.file_locations,
+                use_mmr=True,
+                similarity_cutoff=0.6,
+                mmr_alpha=0.5
+            )
 
             if not results:
                 return f"""❌ **No relevant passages found**
@@ -578,14 +599,17 @@ Provide your answer in a clear, well-structured format. Be specific about what t
             rag_response = await self.workflow.llm.acomplete(rag_prompt)
             answer_text = rag_response.text
 
+            print(f"🤖 LLM Response preview: {answer_text[:200]}...")
+
             # Check if the LLM indicated insufficient information (common patterns)
+            # Only trigger if the response explicitly starts with insufficient information
             insufficient_patterns = [
-                "do not contain sufficient information",
-                "cannot be answered",
-                "not enough information",
-                "insufficient evidence",
-                "passages do not provide",
-                "cannot determine from the provided"
+                "the retrieved passages do not contain sufficient information",
+                "cannot be answered based on",
+                "not enough information to answer",
+                "insufficient evidence to",
+                "passages do not provide enough information",
+                "cannot determine from the provided passages"
             ]
 
             answer_lower = answer_text.lower()
@@ -646,6 +670,8 @@ Provide your answer in a clear, well-structured format. Be specific about what t
 
             # Extract paper IDs from results
             paper_ids = list(papers_dict.keys())
+
+            print(f"✅ Semantic search summary generated ({len(final_response)} characters)")
 
             return QueryResult(
                 success=True,
@@ -722,9 +748,14 @@ Provide your answer in a clear, well-structured format. Be specific about what t
         """Save a summary to the filesystem"""
         try:
             from .summarizer import save_summary
+            from .vector_store import index_summary
 
             print(f"💾 Saving summary for: '{paper.title}'...")
             file_path = save_summary(summary, paper.paper_id)
+
+            # Index the summary for semantic search
+            print(f"📚 Indexing summary for: '{paper.title}'...")
+            index_summary(paper, self.workflow.file_locations)
 
             completion_message = f"""🎉 **Summary Saved Successfully!**
 
@@ -847,6 +878,9 @@ Please provide an improved version that addresses the feedback while maintaining
                         papers.append(paper_metadata)
                 except Exception:
                     continue
+
+            # Sort papers by paper ID ascending
+            papers.sort(key=lambda p: p.paper_id)
 
             if not papers:
                 content = """# Downloaded Papers

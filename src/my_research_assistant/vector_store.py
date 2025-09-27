@@ -539,13 +539,111 @@ def index_notes(pmd: PaperMetadata, file_locations: FileLocations = FILE_LOCATIO
     print("Summary index updated successfully with notes (ChromaDB auto-persists).")
 
 
-def search_index(query:str, k:int=5, file_locations:FileLocations=FILE_LOCATIONS) \
+def _retrieve_with_manual_diversity(content_index, query: str, k: int, similarity_cutoff: float):
+    """
+    Manual diversity strategy for compound queries when MMR is not supported.
+
+    For compound queries, we try multiple search strategies to ensure diverse results:
+    1. Search for the full query
+    2. Extract key terms and search for each individually
+    3. Combine and deduplicate results while maintaining diversity
+    """
+    from llama_index.core.postprocessor import SimilarityPostprocessor
+    import re
+
+    all_chunks = []
+
+    # Strategy 1: Full query search
+    retriever = content_index.as_retriever(similarity_top_k=k)
+    chunks = retriever.retrieve(query)
+    all_chunks.extend(chunks)
+
+    # Strategy 2: Extract key terms and search individually
+    # Look for potential model names, company names, etc.
+    key_terms = []
+
+    # Extract quoted terms and specific patterns
+    quoted_matches = re.findall(r'"([^"]+)"', query)
+    key_terms.extend(quoted_matches)
+
+    # Extract potential model names (patterns like "word-v3", "word v3", "word k2")
+    model_patterns = re.findall(r'\b[A-Za-z]+[-\s]?[vV]?\d+\b', query)
+    key_terms.extend(model_patterns)
+
+    # Extract capitalized terms that might be product names
+    cap_terms = re.findall(r'\b[A-Z][a-z]*(?:\s+[A-Z][a-z]*)*\b', query)
+    key_terms.extend(cap_terms)
+
+    # Common terms to search for based on common compound queries
+    if 'compare' in query.lower():
+        # For comparison queries, try to find individual components
+        words = query.lower().split()
+        potential_models = []
+        for i, word in enumerate(words):
+            if word in ['compare', 'versus', 'vs', 'and', 'with', 'between']:
+                continue
+            # Look for terms that might be model names
+            if any(char.isdigit() for char in word) or word in ['deepseek', 'kimi', 'gpt', 'claude', 'llama']:
+                potential_models.append(word)
+        key_terms.extend(potential_models)
+
+    # Search for each key term individually to increase diversity
+    seen_paper_ids = set()
+    for term in set(key_terms):  # Remove duplicates
+        if len(term) > 1:  # Skip single character terms
+            try:
+                term_chunks = retriever.retrieve(term)
+                # Add chunks from papers we haven't seen yet to increase diversity
+                for chunk in term_chunks:
+                    paper_id = chunk.metadata.get('paper_id')
+                    if paper_id not in seen_paper_ids:
+                        all_chunks.append(chunk)
+                        seen_paper_ids.add(paper_id)
+                        if len(all_chunks) >= k:
+                            break
+                if len(all_chunks) >= k:
+                    break
+            except Exception:
+                continue
+
+    # Apply similarity filtering if specified
+    if similarity_cutoff > 0:
+        postprocessor = SimilarityPostprocessor(similarity_cutoff=similarity_cutoff)
+        all_chunks = postprocessor.postprocess_nodes(all_chunks)
+
+    # Return up to k results, maintaining diversity by paper
+    diverse_chunks = []
+    papers_seen = set()
+
+    # First pass: one chunk per paper
+    for chunk in all_chunks:
+        paper_id = chunk.metadata.get('paper_id')
+        if paper_id not in papers_seen:
+            diverse_chunks.append(chunk)
+            papers_seen.add(paper_id)
+            if len(diverse_chunks) >= k:
+                break
+
+    # Second pass: fill remaining slots with best chunks
+    if len(diverse_chunks) < k:
+        for chunk in all_chunks:
+            if chunk not in diverse_chunks:
+                diverse_chunks.append(chunk)
+                if len(diverse_chunks) >= k:
+                    break
+
+    return diverse_chunks
+
+
+def search_index(query:str, k:int=5, file_locations:FileLocations=FILE_LOCATIONS,
+                 use_mmr:bool=True, similarity_cutoff:float=0.6, mmr_alpha:float=0.5) \
     -> list[SearchResult]:
     """
-    Search the content index for papers matching the query.
+    Search the content index for papers matching the query with enhanced retrieval strategies.
 
     This function searches through the content index (PDF documents) for chunks matching
-    the query and returns structured SearchResult objects.
+    the query and returns structured SearchResult objects. Supports MMR (Maximum Marginal
+    Relevance) for diverse results and similarity filtering for higher quality matches.
 
     Parameters
     ----------
@@ -555,6 +653,12 @@ def search_index(query:str, k:int=5, file_locations:FileLocations=FILE_LOCATIONS
         Maximum number of results to return (default: 5)
     file_locations : FileLocations, optional
         File locations configuration
+    use_mmr : bool, optional
+        Whether to use Maximum Marginal Relevance for diverse results (default: True)
+    similarity_cutoff : float, optional
+        Minimum similarity score threshold for filtering results (default: 0.6)
+    mmr_alpha : float, optional
+        MMR alpha parameter balancing relevance (1.0) vs diversity (0.0) (default: 0.5)
 
     Returns
     -------
@@ -583,9 +687,51 @@ def search_index(query:str, k:int=5, file_locations:FileLocations=FILE_LOCATIONS
         except Exception as e:
             raise IndexError(f"Error loading content index: {e}")
     
-    # Run the query
-    retriever = content_index.as_retriever(similarity_top_k=k)
-    chunks = retriever.retrieve(query)
+    # Configure retriever with enhanced options
+    from llama_index.core.vector_stores.types import VectorStoreQueryMode
+    from llama_index.core.postprocessor import SimilarityPostprocessor
+
+    if use_mmr:
+        try:
+            # First try MMR for diverse results
+            retriever = content_index.as_retriever(
+                similarity_top_k=k,
+                vector_store_query_mode=VectorStoreQueryMode.MMR,
+                alpha=mmr_alpha
+            )
+            chunks = retriever.retrieve(query)
+
+            # Check if MMR actually provided diversity
+            paper_ids_found = set()
+            for chunk in chunks:
+                paper_ids_found.add(chunk.metadata.get('paper_id'))
+
+            # If we only found 1 paper and the query suggests we should find more,
+            # use manual diversity
+            compound_indicators = ['compare', 'versus', 'vs', 'and', 'both', 'between']
+            is_compound_query = any(indicator in query.lower() for indicator in compound_indicators)
+
+            if len(paper_ids_found) == 1 and is_compound_query:
+                print(f"MMR found only 1 paper for compound query, using manual diversity strategy...")
+                chunks = _retrieve_with_manual_diversity(content_index, query, k, similarity_cutoff)
+
+        except Exception:
+            # Fallback to manual diversity approach if MMR fails
+            print("MMR mode not supported, using manual diversity strategy...")
+            chunks = _retrieve_with_manual_diversity(content_index, query, k, similarity_cutoff)
+    else:
+        # Use hybrid search as alternative
+        retriever = content_index.as_retriever(
+            similarity_top_k=k,
+            vector_store_query_mode=VectorStoreQueryMode.HYBRID
+        )
+        chunks = retriever.retrieve(query)
+
+    # Apply similarity filtering if cutoff is specified and we haven't done manual diversity
+    if similarity_cutoff > 0 and not (use_mmr and 'manual diversity' in str(chunks)):
+        postprocessor = SimilarityPostprocessor(similarity_cutoff=similarity_cutoff)
+        chunks = postprocessor.postprocess_nodes(chunks)
+
     results = []
     for chunk in chunks:
         try:

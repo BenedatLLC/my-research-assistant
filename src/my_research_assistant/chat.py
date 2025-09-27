@@ -441,8 +441,9 @@ Use 'status' for detailed state information.
                         original_query=query
                     )
                 else:
-                    # Handle failure case
-                    self.interface_adapter.show_error(result.message)
+                    # Handle failure case - show what we got for debugging
+                    error_msg = f"Search failed - success: {result.success}, content length: {len(result.content) if result.content else 0}, message: {result.message}"
+                    self.interface_adapter.show_error(error_msg)
                     self.state_machine.transition_to_initial("No search results")
             else:
                 # Backward compatibility for old string format
