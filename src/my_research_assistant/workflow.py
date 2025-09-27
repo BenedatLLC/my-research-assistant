@@ -206,10 +206,6 @@ class ResearchAssistantWorkflow(Workflow):
     async def search_papers_impl(self, ctx: Context, query: str) -> SearchResultsEvent | StopEvent:
         """Implementation of paper search"""
         try:
-            ctx.write_event_to_stream(
-                StopEvent(result=f"🔍 Searching for papers matching: '{query}'...")
-            )
-            
             with self.interface.progress_context(f"🔍 Searching for papers matching: '{query}'..."):
                 # Search for papers (default k=5 for initial search to show options)
                 try:

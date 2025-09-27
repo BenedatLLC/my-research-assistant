@@ -25,6 +25,7 @@ from .models import get_default_model
 from .file_locations import FILE_LOCATIONS
 from .project_types import PaperMetadata
 from .interface_adapter import TerminalAdapter
+from .validate_store import print_store_validation
 
 
 class ChatInterface:
@@ -92,7 +93,10 @@ Welcome to your interactive research assistant! I can help you:
 * `find <query>` - Find papers on ArXiv to download
 * `sem-search <query>` - Search your indexed papers semantically
 * `list` - Show all downloaded papers (with pagination)
+* `summarize-all` - Generate summaries for all papers without them
 * `rebuild-index` - Rebuild content and summary indexes from all files
+* `reindex-paper <paper_id>` - Reindex a specific paper through all processing steps
+* `validate-store` - Show status of all papers in the store
 * `help` - Show this help message
 * `status` - Show current status
 * `history` - Show conversation history
@@ -192,6 +196,24 @@ Welcome to your interactive research assistant! I can help you:
             "rebuild-index",
             "Rebuild all indexes from files",
             "rebuild-index",
+            "any"
+        )
+        help_table.add_row(
+            "reindex-paper <id>",
+            "Reindex a specific paper through all steps",
+            "reindex-paper 2503.22738",
+            "any"
+        )
+        help_table.add_row(
+            "summarize-all",
+            "Generate summaries for all papers without them",
+            "summarize-all",
+            "any"
+        )
+        help_table.add_row(
+            "validate-store",
+            "Show status of all papers in the store",
+            "validate-store",
             "any"
         )
         help_table.add_row(
@@ -353,42 +375,6 @@ Use 'status' for detailed state information.
             self.interface_adapter.show_error(f"Search failed: {str(e)}")
             self.state_machine.transition_to_initial(f"Error: {str(e)}")
             self.current_state = "ready"
-    
-    async def process_select_command(self, selection: str):
-        """Process a paper selection command using the workflow system."""
-        if not self.current_papers:
-            self.interface_adapter.show_error("No papers available to select. Search first.")
-            return
-        
-        try:
-            paper_num = int(selection) - 1
-            if paper_num < 0 or paper_num >= len(self.current_papers):
-                self.interface_adapter.show_error(f"Invalid selection. Choose 1-{len(self.current_papers)}")
-                return
-            
-            selected_paper = self.current_papers[paper_num]
-            self.interface_adapter.show_success(f"Selected: {selected_paper.title}")
-            
-            # Use the workflow system for paper processing
-            result = await self.workflow_runner.process_paper_selection(selected_paper)
-            
-            # Check if we got a summary event back for potential improvements
-            if hasattr(result, 'paper') and hasattr(result, 'summary') and hasattr(result, 'paper_text'):
-                self.current_summary = result.summary
-                self.current_paper = result.paper
-                self.current_paper_text = result.paper_text
-                self.current_state = "summary_ready"
-                
-                self.interface_adapter.show_info("You can now:")
-                self.interface_adapter.show_info("• Type 'improve <feedback>' to refine the summary")
-                self.interface_adapter.show_info("• Type 'save' to save the summary")
-            else:
-                self.current_state = "ready"
-            
-        except ValueError:
-            self.interface_adapter.show_error("Invalid selection. Enter a number.")
-        except Exception as e:
-            self.interface_adapter.show_error(f"Selection failed: {str(e)}")
     
     
     async def process_improve_command(self, feedback: str):
@@ -607,6 +593,143 @@ Use 'status' for detailed state information.
 
         except Exception as e:
             self.interface_adapter.show_error(f"Index rebuild failed: {str(e)}")
+
+    async def process_summarize_all_command(self):
+        """Process a summarize-all command to generate summaries for all papers without them."""
+        from .arxiv_downloader import get_downloaded_paper_ids, get_paper_metadata
+        from .paper_manager import get_paper_summary_path
+        from .vector_store import index_file
+        from .summarizer import summarize_paper, save_summary
+        from .vector_store import index_summary
+
+        try:
+            # Reset state machine to initial state
+            self.state_machine.reset()
+
+            # Get all downloaded papers
+            self.console.print("🔍 [bold blue]Finding downloaded papers...[/bold blue]")
+            paper_ids = get_downloaded_paper_ids(FILE_LOCATIONS)
+
+            if not paper_ids:
+                self.interface_adapter.show_info("No downloaded papers found. Download some papers first.")
+                return
+
+            # Filter to papers without summaries
+            papers_without_summaries = []
+            papers_with_summaries = 0
+
+            for paper_id in paper_ids:
+                if not get_paper_summary_path(paper_id, FILE_LOCATIONS):
+                    try:
+                        paper_metadata = get_paper_metadata(paper_id)
+                        if paper_metadata:
+                            papers_without_summaries.append(paper_metadata)
+                    except Exception:
+                        self.console.print(f"⚠️ [yellow]Could not load metadata for paper {paper_id}, skipping.[/yellow]")
+                        continue
+                else:
+                    papers_with_summaries += 1
+
+            total_papers = len(papers_without_summaries) + papers_with_summaries
+            self.console.print(f"📊 [bold green]Found {total_papers} downloaded papers:[/bold green]")
+            self.console.print(f"   • {papers_with_summaries} papers already have summaries")
+            self.console.print(f"   • {len(papers_without_summaries)} papers need summaries")
+
+            if not papers_without_summaries:
+                self.interface_adapter.show_info("✅ All downloaded papers already have summaries!")
+                return
+
+            # Process each paper without a summary
+            self.console.print(f"\n🚀 [bold blue]Starting summarization of {len(papers_without_summaries)} papers...[/bold blue]")
+
+            successful_summaries = 0
+            failed_summaries = 0
+
+            for i, paper in enumerate(papers_without_summaries, 1):
+                self.console.print(f"\n📝 [bold cyan]Processing paper {i}/{len(papers_without_summaries)}: {paper.paper_id}[/bold cyan]")
+                self.console.print(f"    Title: {paper.title}")
+
+                try:
+                    # Step 1: Index the paper (this extracts and caches text)
+                    with self.console.status(f"[bold green]Indexing paper {i}/{len(papers_without_summaries)}..."):
+                        paper_text = index_file(paper, FILE_LOCATIONS)
+
+                    self.console.print(f"    ✅ Indexed successfully ({len(paper_text):,} characters)")
+
+                    # Step 2: Generate summary
+                    with self.console.status(f"[bold green]Generating summary {i}/{len(papers_without_summaries)}..."):
+                        summary = summarize_paper(paper_text, paper)
+
+                    self.console.print(f"    ✅ Summary generated")
+
+                    # Step 3: Save summary
+                    summary_path = save_summary(summary, paper.paper_id)
+                    self.console.print(f"    ✅ Summary saved to: {summary_path}")
+
+                    # Step 4: Index the summary
+                    try:
+                        index_summary(paper, FILE_LOCATIONS)
+                        self.console.print(f"    ✅ Summary indexed for search")
+                    except Exception as e:
+                        self.console.print(f"    ⚠️ [yellow]Summary indexing failed: {str(e)}[/yellow]")
+
+                    successful_summaries += 1
+
+                except Exception as e:
+                    failed_summaries += 1
+                    self.console.print(f"    ❌ [red]Failed to process paper: {str(e)}[/red]")
+                    continue
+
+            # Show final results
+            self.console.print(f"\n🎉 [bold green]Summarization complete![/bold green]")
+            self.console.print(f"   • ✅ Successfully processed: {successful_summaries} papers")
+            if failed_summaries > 0:
+                self.console.print(f"   • ❌ Failed: {failed_summaries} papers")
+
+            self.console.print(f"   • 📚 Total papers with summaries: {papers_with_summaries + successful_summaries}")
+
+            # Add to history
+            summary_msg = f"Processed {successful_summaries} papers successfully"
+            if failed_summaries > 0:
+                summary_msg += f", {failed_summaries} failed"
+            self.add_to_history("assistant", f"summarize-all completed: {summary_msg}")
+
+        except Exception as e:
+            self.interface_adapter.show_error(f"Summarize-all failed: {str(e)}")
+
+    async def process_validate_store_command(self):
+        """Process a validate-store command to show the status of all papers in the store."""
+        try:
+            self.console.print("🔍 [bold blue]Validating store status...[/bold blue]")
+
+            # Call the validation function
+            print_store_validation(self.console, FILE_LOCATIONS)
+
+            # Add to history
+            self.add_to_history("assistant", "validate-store completed: Displayed store validation results")
+
+        except Exception as e:
+            self.interface_adapter.show_error(f"Store validation failed: {str(e)}")
+
+    async def process_reindex_paper_command(self, paper_id: str):
+        """Process a reindex-paper command to reindex a specific paper."""
+        from .reindex_paper import reindex_paper, ReindexError
+        try:
+            self.console.print(f"🔄 [bold blue]Reindexing paper {paper_id}...[/bold blue]")
+
+            # Run the reindex operation with status updates
+            with self.console.status(f"[bold green]Processing paper {paper_id}..."):
+                result_message = reindex_paper(paper_id, FILE_LOCATIONS)
+
+            # Display the results
+            self.console.print(f"✅ [bold green]{result_message}[/bold green]")
+
+            # Add to history
+            self.add_to_history("assistant", f"reindex-paper {paper_id} completed: {result_message}")
+        except ReindexError as e:
+            self.interface_adapter.show_error(f"Reindex failed: {str(e)}")
+        except Exception as e:
+            self.interface_adapter.show_error(f"Reindex paper failed: {str(e)}")
 
     async def process_summarize_command(self, reference: str):
         """Process a summarize command for the new state machine workflow."""
@@ -953,7 +1076,28 @@ The content has been saved to your results directory and can be referenced later
                 cmd_arg = cmd_parts[1] if len(cmd_parts) > 1 else ""
 
                 # Check if command is valid in current state (skip global commands)
-                global_commands = ["help", "status", "history", "clear", "quit", "exit", "rebuild-index"]
+                global_commands = ["help", "status", "history", "clear", "quit", "exit", "rebuild-index", "summarize-all", "validate-store"]
+
+                # Get all valid command names (including global ones)
+                all_valid_commands = set(global_commands)
+                state_commands = self.state_machine.get_valid_commands()
+                for cmd in state_commands:
+                    all_valid_commands.add(cmd.split()[0])
+
+                # Check if the command is recognized at all
+                if cmd_name not in all_valid_commands:
+                    # Check for common typos
+                    if cmd_name == "valiate-store":
+                        self.interface_adapter.show_error(
+                            "Did you mean 'validate-store'? (Note the 'd' in 'validate')"
+                        )
+                    else:
+                        self.interface_adapter.show_error(
+                            f"Unknown command '{cmd_name}'. Type 'help' to see available commands."
+                        )
+                    continue
+
+                # Check if command is valid in current state
                 if cmd_name not in global_commands and not self.state_machine.is_command_valid(user_input):
                     valid_cmds = [cmd for cmd in self.state_machine.get_valid_commands()
                                  if not cmd.split()[0] in global_commands][:5]
@@ -979,6 +1123,15 @@ The content has been saved to your results directory and can be referenced later
 
                 elif cmd_name == 'rebuild-index':
                     await self.process_rebuild_index_command()
+                elif cmd_name == 'summarize-all':
+                    await self.process_summarize_all_command()
+                elif cmd_name == 'validate-store':
+                    await self.process_validate_store_command()
+                elif cmd_name == 'reindex-paper':
+                    if cmd_arg:
+                        await self.process_reindex_paper_command(cmd_arg)
+                    else:
+                        self.console.print("❌ [red]Please provide a paper ID[/red]")
 
                 # Handle workflow commands
                 elif cmd_name == 'find':
@@ -1039,12 +1192,7 @@ The content has been saved to your results directory and can be referenced later
                 elif cmd_name == 'list':
                     await self.process_list_command()
 
-                # Legacy commands for backward compatibility during transition
-                elif cmd_name == 'select':
-                    if cmd_arg:
-                        await self.process_select_command(cmd_arg)
-                    else:
-                        self.console.print("❌ [red]Please provide a selection number[/red]")
+                # No legacy commands - all transitioned to state machine
 
                 else:
                     self.interface_adapter.show_info("Unknown command. Type 'help' for available commands.")

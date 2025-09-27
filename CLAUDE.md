@@ -50,11 +50,13 @@ The `chat` command launches a rich terminal interface with:
 - Conversation history and status tracking
 
 #### Core User Operations
-1. **Find, download, index, and summarize papers** - Keyword search with user refinement, automated processing pipeline
+1. **Find, download, and summarize papers** - Keyword search from ArXiv with user refinement, automated paper processing
 2. **View repository content** - List indexed papers, view individual papers and summaries
 3. **Semantic search** - Search across papers with summarized answers and page references
 4. **Deep research** - High-level summary search combined with detailed chunk analysis
-5. **Repository maintenance** - Re-index, re-summarize, and manage the paper collection
+5. **Repository management** - Re-index, re-summarize, validate store, and manage the paper collection
+6. **Personal notes** - Add and edit personal notes for papers
+7. **Content management** - Improve summaries and research results, save results to files
 
 ### Package Management
 ```bash
@@ -70,32 +72,44 @@ uv add --group dev <package-name>
 
 ## Architecture Overview
 
-The system is built around a pipeline architecture with these core components:
+The system is built around a state machine-driven workflow with a pipeline architecture for paper processing:
 
 ### Core Data Flow
 1. **Search & Metadata** (`arxiv_downloader.py`) - ArXiv API integration for searching and retrieving paper metadata
 2. **Download** (`arxiv_downloader.py`) - PDF download and local storage management
-3. **Indexing** (`vector_store.py`) - LlamaIndex-based vector storage for semantic search
-4. **Summarization** (`summarizer.py`) - LLM-powered paper summarization
-5. **Workflow Orchestration** (`workflow.py`) - LlamaIndex workflow for research assistant operations
+3. **Text Extraction** (`pdf_image_extractor.py`) - Extract text and images from PDFs using PyMuPDF
+4. **Indexing** (`vector_store.py`) - Dual ChromaDB instances (content and summary indexes) for semantic search
+5. **Summarization** (`summarizer.py`) - LLM-powered paper summarization with versioned prompts
+6. **Workflow Orchestration** (`workflow.py`) - LlamaIndex workflow for research assistant operations
+7. **State Management** (`state_machine.py`) - State machine controlling valid commands and transitions
 
 ### Key Components
 
 - **`PaperMetadata`** (`project_types.py`) - Central data structure containing paper information (title, authors, categories, URLs, local paths)
-- **`FileLocations`** (`file_locations.py`) - Configuration for data storage locations (PDFs, summaries, index, images)
-- **`ChatInterface`** (`chat.py`) - Rich terminal interface with conversation management and command processing
-- **`WorkflowRunner`** (`workflow.py`) - LlamaIndex workflow orchestration for research operations
+- **`FileLocations`** (`file_locations.py`) - Configuration for data storage locations (PDFs, summaries, indexes, images, notes, results)
+- **`ChatInterface`** (`chat.py`) - Rich terminal interface with state machine integration and command processing
+- **`StateMachine`** (`state_machine.py`) - Workflow state management with 6 states (initial, select-new, select-view, summarized, sem-search, research)
+- **`WorkflowRunner`** (`workflow.py`) - LlamaIndex workflow orchestration with structured result objects
 - **`PromptManager`** (`prompt.py`) - Template-based prompt system with variable substitution from markdown files
-- **Global Vector Store** (`vector_store.py`) - Maintains persistent LlamaIndex vector store across sessions
+- **Dual Vector Stores** (`vector_store.py`) - Separate ChromaDB instances for content and summary indexes
 - **Model Management** (`models.py`) - Centralized LLM configuration with caching
+- **Paper Management** (`paper_manager.py`) - Utilities for resolving paper references and loading summaries
+- **Result Storage** (`result_storage.py`) - Save and manage search/research results with LLM-generated titles
+- **Store Validation** (`validate_store.py`) - Validate and report on paper storage status across all components
 
 ### Data Storage Structure
 ```
 ${DOC_HOME}/
-├── pdfs/           # Downloaded PDF files
-├── summaries/      # Generated markdown summaries
-│   └── images/     # Extracted figures from papers
-└── index/          # LlamaIndex vector store persistence
+├── pdfs/                       # Downloaded PDF files
+├── paper_metadata/             # JSON files with ArXiv metadata
+├── extracted_paper_text/       # Markdown text extracted from PDFs
+├── summaries/                  # LLM-generated markdown summaries
+│   └── images/                 # Extracted figures from papers
+├── notes/                      # Personal notes for papers (markdown)
+├── results/                    # Saved semantic search and research results
+└── index/                      # ChromaDB vector store persistence
+    ├── content/                # Content index (paper chunks)
+    └── summary/                # Summary index (summaries + notes)
 ```
 
 ### Prompt System
@@ -116,19 +130,48 @@ The system uses a two-stage approach:
 
 ### LlamaIndex Integration
 - Uses LlamaIndex workflows for complex multi-step research operations
-- Document chunking, embedding, and vector storage capabilities
+- Dual ChromaDB vector stores: content index (paper chunks) and summary index (summaries + notes)
+- Document chunking, embedding, and vector storage capabilities with metadata enrichment
 - Supports incremental indexing with persistent storage
-- Metadata enrichment (title, authors, categories) for enhanced retrieval
 - Event-driven workflow architecture for paper processing pipeline
+- Structured result objects (`QueryResult`, `ProcessingResult`, `SaveResult`) for better error handling
 
 ### Testing Structure
-- Tests use pytest with custom `conftest.py` for path setup
+- Tests use pytest with custom `conftest.py` for path setup and temporary directories
 - `pytest-asyncio` for async workflow testing support
-- Test coverage includes search, download, indexing, summarization, and workflow orchestration
-- Mock-based unit tests for individual workflow steps
-- Integration tests verify end-to-end functionality
-- Comprehensive workflow testing in `tests/test_workflow.py`
-- Prompt system testing in `tests/test_prompt.py`
+- Comprehensive test coverage:
+  - State machine functionality (`test_state_machine.py`) - 30+ tests covering all workflows
+  - Chat interface integration (`test_chat.py`) - Command processing and state transitions
+  - Workflow orchestration (`test_workflow.py`) - LlamaIndex workflow operations
+  - Store validation (`test_validate_store.py`, `test_validate_store_integration.py`)
+  - Component testing: summarizer, prompt system, PDF extraction, ArXiv search
+- Mock-based unit tests for individual components
+- Integration tests verify end-to-end functionality with temporary file structures
+
+### State Machine Workflow
+
+The system implements a comprehensive state machine with 6 states:
+
+1. **initial** - Starting state, ready for queries
+2. **select-new** - Papers found via `find`, ready to summarize
+3. **select-view** - Papers listed via `list`, ready to view
+4. **summarized** - Working with a specific paper and its summary
+5. **sem-search** - Semantic search results available
+6. **research** - Deep research results available
+
+#### Command Set by State
+- **Discovery**: `find <query>`, `list` (available from any state)
+- **Paper Processing**: `summarize <number|id>` (from select-new), `summary <number|id>` (from select-view/sem-search/research)
+- **Content Operations**: `open <number|id>` (view paper content), `notes` (edit personal notes)
+- **Search & Research**: `sem-search <query>`, `research <query>` (available from any state)
+- **Workflow Management**: `improve <feedback>`, `save` (context-dependent)
+- **System**: `rebuild-index`, `validate-store`, `summarize-all`, `help`, `status`, `history`, `clear`, `quit`
+
+#### State Variables
+- `last_query_set` - Paper IDs from most recent query
+- `selected_paper` - Currently selected paper for detailed work
+- `draft` - In-progress content (summary, search results, research)
+- `original_query` - User's original query for search/research operations
 
 ## Development Notes
 
@@ -139,11 +182,27 @@ The system uses a two-stage approach:
 
 ### Error Handling
 - Custom exceptions: `IndexError`, `ImageExtractError`, `ConfigError`, `PromptFileError`, `PromptVarError`
+- State machine error recovery: transitions to appropriate states on failures
 - Graceful fallbacks for embedding failures (switches to text-based similarity)
 - Robust file existence checking before operations
 - Prompt template validation and error reporting
+- Structured error handling in workflow operations with detailed result objects
 
 ### Model Usage
 - Centralized model configuration supports caching for performance
-- Environment-based model selection for flexibility across deployments
+- Environment-based model selection (`DEFAULT_MODEL` env var, defaults to 'gpt-4o')
 - OpenAI integration with configurable model parameters
+- Template-based prompt system with versioned prompts for different operations
+
+### Store Validation
+- `validate-store` command provides comprehensive status reporting
+- Checks for: PDF downloads, extracted text, summaries, notes, content index chunks, summary index chunks
+- Rich table output with summary statistics
+- Integration with both ChromaDB vector stores for chunk counting
+
+### Design Documentation
+The `designs/` directory contains comprehensive design documents:
+- `workflow-state-machine-and-commands.md` - Complete state machine specification with test flows
+- `validate-command.md` - Store validation command design
+- `file-store.md` - Data storage architecture and paper states
+- `user-stores.md` - High-level user operations and workflows

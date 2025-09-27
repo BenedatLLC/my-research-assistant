@@ -240,7 +240,11 @@ def _add_document_to_index(doc: Document, pmd: PaperMetadata, index: VectorStore
     # Add common metadata
     doc.metadata['paper_id'] = pmd.paper_id
     doc.metadata['title'] = pmd.title
-    doc.metadata['authors'] = ', '.join(pmd.authors)
+    # Truncate authors to maximum of 5 to avoid metadata length issues
+    truncated_authors = pmd.authors[:5]
+    if len(pmd.authors) > 5:
+        truncated_authors.append("et al.")
+    doc.metadata['authors'] = ', '.join(truncated_authors)
     doc.metadata['categories'] = ', '.join(pmd.categories)
     
     # Add type-specific metadata

@@ -62,6 +62,7 @@ We want to refactor to the following set of commands:
 - research <query> - Perform deep research on the downloaded papers
 - save - Save the current semantic search result or deep research result
 - rebuild-index - Rebuild the index files for both paper content and summaries.
+- summarize-all - Generate summaries for all downloaded papers that don't have summaries
 - help - Show the valid commands for the current conversation state.
 - status - Show the current workflow status
 - history - Show conversation history
@@ -153,7 +154,7 @@ entering those states, and a description of the state:
 |-------------|----------------------------|--------------------------------------------------------|-----------------------|
 ```
 
-The commands `rebuild-index`, `help`, `status`, `history`, `clear`, `quit`, and `exit` can be run from any state.
+The commands `rebuild-index`, `summarize-all`, `help`, `status`, `history`, `clear`, `quit`, and `exit` can be run from any state.
 
 ### State transitions
 Here is a table showing each command, the valid start states for that command, the actions taken on
@@ -216,8 +217,12 @@ the state variables by the command, and the next state(s).
 |                       | research or       | draft="..."                |                         |
 |                       | select-view       |                            |                         |
 |-----------------------|-------------------|----------------------------|-------------------------|
-| list                  | ANY               | last_query_set=[P1,P2...]  | select-view             | 
+| list                  | ANY               | last_query_set=[P1,P2...]  | select-view             |
 |                       |                   | selected_paper=None        |                         |
+|                       |                   | draft=None                 |                         |
+|-----------------------|-------------------|----------------------------|-------------------------|
+| summarize-all         | ANY               | last_query_set=[]          | initial                 |
+|                       |                   | selected_paper=None        | (resets state)          |
 |                       |                   | draft=None                 |                         |
 |-----------------------|-------------------|----------------------------|-------------------------|
 ```

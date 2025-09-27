@@ -203,9 +203,9 @@ class TerminalAdapter(InterfaceAdapter):
         self.console.print(table)
         
         if len(papers) == 1:
-            self.console.print("\n[yellow]This is the best match. Type 'select 1' to proceed or search again.[/yellow]")
+            self.console.print("\n[yellow]This is the best match. Type 'summarize 1' to proceed or search again.[/yellow]")
         else:
-            self.console.print(f"\n[yellow]Type 'select <number>' (1-{len(papers)}) to choose a paper.[/yellow]")
+            self.console.print(f"\n[yellow]Type 'summarize <number>' (1-{len(papers)}) to choose a paper.[/yellow]")
     
     async def get_user_input(self, prompt: str, options: Optional[List[str]] = None) -> str:
         """Get user input with Rich prompt."""
