@@ -714,19 +714,35 @@ Use 'status' for detailed state information.
 
     async def process_reindex_paper_command(self, paper_id: str):
         """Process a reindex-paper command to reindex a specific paper."""
+        from .paper_manager import parse_paper_argument
         from .reindex_paper import reindex_paper, ReindexError
+
         try:
-            self.console.print(f"🔄 [bold blue]Reindexing paper {paper_id}...[/bold blue]")
+            # Parse paper argument using new common function
+            paper, error_msg = parse_paper_argument(
+                "reindex-paper",
+                paper_id,
+                self.state_machine.state_vars.last_query_set,
+                FILE_LOCATIONS
+            )
+            if not paper:
+                self.interface_adapter.show_error(error_msg)
+                return
+
+            self.console.print(f"🔄 [bold blue]Reindexing paper {paper.paper_id}...[/bold blue]")
 
             # Run the reindex operation with status updates
-            with self.console.status(f"[bold green]Processing paper {paper_id}..."):
-                result_message = reindex_paper(paper_id, FILE_LOCATIONS)
+            with self.console.status(f"[bold green]Processing paper {paper.paper_id}..."):
+                result_message = reindex_paper(paper.paper_id, FILE_LOCATIONS)
 
             # Display the results
             self.console.print(f"✅ [bold green]{result_message}[/bold green]")
 
             # Add to history
-            self.add_to_history("assistant", f"reindex-paper {paper_id} completed: {result_message}")
+            self.add_to_history("assistant", f"reindex-paper {paper.paper_id} completed: {result_message}")
+
+            # No state change for maintenance commands per design
+
         except ReindexError as e:
             self.interface_adapter.show_error(f"Reindex failed: {str(e)}")
         except Exception as e:
@@ -734,19 +750,16 @@ Use 'status' for detailed state information.
 
     async def process_summarize_command(self, reference: str):
         """Process a summarize command for the new state machine workflow."""
-        from .paper_manager import resolve_paper_reference, get_available_papers_from_query_set
+        from .paper_manager import parse_paper_argument
 
         try:
-            # Get available papers based on current state
-            available_papers = []
-            if self.state_machine.state_vars.last_query_set:
-                available_papers = get_available_papers_from_query_set(
-                    self.state_machine.state_vars.last_query_set,
-                    FILE_LOCATIONS
-                )
-
-            # Resolve paper reference
-            paper, error_msg = resolve_paper_reference(reference, available_papers, "summarization")
+            # Parse paper argument using new common function
+            paper, error_msg = parse_paper_argument(
+                "summarize",
+                reference,
+                self.state_machine.state_vars.last_query_set,
+                FILE_LOCATIONS
+            )
             if not paper:
                 self.interface_adapter.show_error(error_msg)
                 return
@@ -756,7 +769,7 @@ Use 'status' for detailed state information.
 
             # Handle the result and update state machine
             if hasattr(result, 'paper') and hasattr(result, 'summary'):
-                # Store the summary in state machine
+                # Store the summary in state machine and clear last_query_set
                 self.state_machine.transition_after_summarize(result.paper, result.summary)
 
                 # Display the summary
@@ -774,20 +787,17 @@ Use 'status' for detailed state information.
 
     async def process_summary_command(self, reference: str):
         """Process a summary command to view an existing paper summary."""
-        from .paper_manager import resolve_paper_reference, get_available_papers_from_query_set, load_paper_summary
+        from .paper_manager import parse_paper_argument, load_paper_summary
         from rich.prompt import Confirm
 
         try:
-            # Get available papers based on current state
-            available_papers = []
-            if self.state_machine.state_vars.last_query_set:
-                available_papers = get_available_papers_from_query_set(
-                    self.state_machine.state_vars.last_query_set,
-                    FILE_LOCATIONS
-                )
-
-            # Resolve paper reference
-            paper, error_msg = resolve_paper_reference(reference, available_papers, "summary viewing")
+            # Parse paper argument using new common function
+            paper, error_msg = parse_paper_argument(
+                "summary",
+                reference,
+                self.state_machine.state_vars.last_query_set,
+                FILE_LOCATIONS
+            )
             if not paper:
                 self.interface_adapter.show_error(error_msg)
                 return
@@ -855,20 +865,17 @@ Use 'status' for detailed state information.
 
     async def process_open_command(self, reference: str):
         """Process an open command to view paper content."""
-        from .paper_manager import resolve_paper_reference, get_available_papers_from_query_set
+        from .paper_manager import parse_paper_argument
         from .result_storage import open_paper_content
 
         try:
-            # Get available papers based on current state
-            available_papers = []
-            if self.state_machine.state_vars.last_query_set:
-                available_papers = get_available_papers_from_query_set(
-                    self.state_machine.state_vars.last_query_set,
-                    FILE_LOCATIONS
-                )
-
-            # Resolve paper reference
-            paper, error_msg = resolve_paper_reference(reference, available_papers, "paper viewing")
+            # Parse paper argument using new common function
+            paper, error_msg = parse_paper_argument(
+                "open",
+                reference,
+                self.state_machine.state_vars.last_query_set,
+                FILE_LOCATIONS
+            )
             if not paper:
                 self.interface_adapter.show_error(error_msg)
                 return
@@ -883,8 +890,8 @@ Use 'status' for detailed state information.
             self.render_markdown_response(content)
             self.add_to_history("assistant", content)
 
-            # Stay in current state (open doesn't change state)
-            self.state_machine.stay_in_current_state()
+            # Update state machine according to design
+            self.state_machine.transition_after_open(paper)
 
         except Exception as e:
             self.interface_adapter.show_error(f"Open failed: {str(e)}")

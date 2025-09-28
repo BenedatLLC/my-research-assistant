@@ -1,6 +1,7 @@
 """Utilities for managing paper collections and resolving paper references."""
 
 import os
+import re
 from typing import List, Optional, Tuple
 from .project_types import PaperMetadata
 from .file_locations import FileLocations
@@ -174,3 +175,175 @@ def format_paper_list(papers: List[PaperMetadata], title: str = "Papers") -> str
         lines.append("")
 
     return "\n".join(lines)
+
+
+def is_arxiv_id_format(text: str) -> bool:
+    """Check if text looks like an ArXiv paper ID.
+
+    Args:
+        text: The text to check
+
+    Returns:
+        True if text matches ArXiv ID pattern, False otherwise
+    """
+    # ArXiv IDs are typically YYMM.NNNNN or YYMM.NNNNNvN
+    # Also support newer format: YYMM.NNNNN[vN]
+    pattern = r'^\d{4}\.\d{4,5}(v\d+)?$'
+    return bool(re.match(pattern, text.strip()))
+
+
+def get_all_downloaded_papers(file_locations: FileLocations) -> List[PaperMetadata]:
+    """Get all papers that have been downloaded (have PDFs).
+
+    Args:
+        file_locations: File locations configuration
+
+    Returns:
+        List of PaperMetadata objects for all downloaded papers
+    """
+    from .arxiv_downloader import get_paper_metadata
+
+    papers = []
+    if not os.path.exists(file_locations.pdfs_dir):
+        return papers
+
+    # Get all PDF files
+    for filename in os.listdir(file_locations.pdfs_dir):
+        if filename.endswith('.pdf'):
+            # Extract paper ID from filename (remove .pdf extension)
+            paper_id = filename[:-4]
+            try:
+                paper = get_paper_metadata(paper_id.split('v')[0], file_locations)
+                if paper:
+                    # Use the specific version from filename
+                    paper.paper_id = paper_id
+                    papers.append(paper)
+            except Exception:
+                # Skip papers that can't be loaded
+                continue
+
+    return papers
+
+
+def find_downloaded_papers_by_base_id(base_id: str, file_locations: FileLocations) -> List[str]:
+    """Find all downloaded versions of a paper by its base ID.
+
+    Args:
+        base_id: Base ArXiv ID without version (e.g., "2107.03374")
+        file_locations: File locations configuration
+
+    Returns:
+        List of full paper IDs (with versions) that have been downloaded
+    """
+    if not os.path.exists(file_locations.pdfs_dir):
+        return []
+
+    matches = []
+    for filename in os.listdir(file_locations.pdfs_dir):
+        if filename.endswith('.pdf'):
+            paper_id = filename[:-4]
+            # Check if this paper ID starts with the base ID
+            if paper_id.startswith(base_id):
+                # Ensure it's an exact match or includes version
+                if paper_id == base_id or (len(paper_id) > len(base_id) and paper_id[len(base_id)] == 'v'):
+                    matches.append(paper_id)
+
+    return sorted(matches)
+
+
+def parse_paper_argument(
+    command_name: str,
+    argument: str,
+    last_query_set: List[str],
+    file_locations: FileLocations
+) -> Tuple[Optional[PaperMetadata], str]:
+    """Parse and validate a paper argument for commands.
+
+    This function implements the design specified in designs/command-arguments.md.
+    It handles both integer references (to last_query_set) and ArXiv ID references
+    (to entire repository) with comprehensive error handling.
+
+    Args:
+        command_name: Name of the command for error messages
+        argument: The paper argument string to parse
+        last_query_set: List of paper IDs from last query
+        file_locations: File locations configuration
+
+    Returns:
+        Tuple of (PaperMetadata if found, error_message if not found)
+    """
+    from .arxiv_downloader import get_paper_metadata
+
+    if not argument or not argument.strip():
+        return None, f"❌ {command_name} failed: Please provide a paper number or ID"
+
+    argument = argument.strip()
+
+    # Check for multiple arguments (split by whitespace)
+    if len(argument.split()) > 1:
+        return None, f"❌ {command_name} failed: Please provide exactly one paper number or ID"
+
+    # Try parsing as integer first (1-indexed reference to last_query_set)
+    try:
+        paper_num = int(argument)
+        if not last_query_set:
+            return None, f"❌ {command_name} failed: No papers in current list. Use 'find' or 'list' to populate papers first"
+
+        if 1 <= paper_num <= len(last_query_set):
+            paper_id = last_query_set[paper_num - 1]
+            try:
+                paper = get_paper_metadata(paper_id.split('v')[0], file_locations)
+                if paper:
+                    paper.paper_id = paper_id
+                    # Verify PDF exists
+                    pdf_path = paper.get_local_pdf_path(file_locations)
+                    if not os.path.exists(pdf_path):
+                        return None, f"❌ {command_name} failed: Paper {paper_id} PDF not found at {pdf_path}"
+                    return paper, ""
+                else:
+                    return None, f"❌ {command_name} failed: Could not load metadata for paper {paper_id}"
+            except Exception as e:
+                return None, f"❌ {command_name} failed: Error loading paper {paper_id}: {str(e)}"
+        else:
+            return None, f"❌ {command_name} failed: Invalid paper number '{argument}'. Choose 1-{len(last_query_set)}"
+
+    except ValueError:
+        pass
+
+    # Not an integer, check if it looks like an ArXiv ID
+    if not is_arxiv_id_format(argument):
+        return None, f"❌ {command_name} failed: '{argument}' is not a valid paper number or ArXiv ID"
+
+    # Handle ArXiv ID (search entire repository)
+    if 'v' in argument:
+        # Specific version provided
+        paper_id = argument
+        base_id = argument.split('v')[0]
+    else:
+        # No version provided, need to find downloaded versions
+        base_id = argument
+        downloaded_versions = find_downloaded_papers_by_base_id(base_id, file_locations)
+
+        if not downloaded_versions:
+            return None, f"❌ {command_name} failed: Paper {base_id} has not been downloaded"
+
+        if len(downloaded_versions) == 1:
+            paper_id = downloaded_versions[0]
+        else:
+            versions_str = ', '.join(downloaded_versions)
+            return None, f"❌ {command_name} failed: Multiple versions found for {base_id} ({versions_str}). Please specify version"
+
+    # Load the paper metadata
+    try:
+        paper = get_paper_metadata(base_id, file_locations)
+        if paper:
+            paper.paper_id = paper_id
+            # Verify PDF exists
+            pdf_path = paper.get_local_pdf_path(file_locations)
+            if not os.path.exists(pdf_path):
+                return None, f"❌ {command_name} failed: Paper {paper_id} has not been downloaded. PDF not found at {pdf_path}"
+            return paper, ""
+        else:
+            return None, f"❌ {command_name} failed: Could not load metadata for paper {paper_id}"
+    except Exception as e:
+        return None, f"❌ {command_name} failed: Error loading paper {paper_id}: {str(e)}"

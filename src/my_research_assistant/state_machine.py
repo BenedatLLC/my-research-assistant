@@ -174,6 +174,12 @@ class StateMachine:
         self.state_vars.set_selected_paper(paper, summary)
         return self.current_state
 
+    def transition_after_open(self, paper: PaperMetadata) -> WorkflowState:
+        """Handle state transition after opening a paper."""
+        self.current_state = WorkflowState.SUMMARIZED
+        self.state_vars.set_selected_paper(paper, "")  # No summary content for open command
+        return self.current_state
+
     def stay_in_current_state(self):
         """Explicitly stay in current state (for commands like open, improve, etc.)."""
         return self.current_state

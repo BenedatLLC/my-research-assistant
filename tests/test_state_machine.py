@@ -595,7 +595,7 @@ class TestSummaryCommandEnhancements:
             # Create a mock paper that exists but has no summary
             mock_paper = Mock()
             mock_paper.title = 'Test Paper Without Summary'
-            mock_paper.paper_id = 'test.999'
+            mock_paper.paper_id = '2107.03374v1'
             mock_paper.authors = ['Test Author']
 
             # Create mock processing result
@@ -603,13 +603,13 @@ class TestSummaryCommandEnhancements:
             mock_result.paper = mock_paper
             mock_result.summary = "Generated test summary content"
 
-            # Mock the paper resolution, summary loading, and paper processing
-            with patch('my_research_assistant.paper_manager.resolve_paper_reference', return_value=(mock_paper, '')):
+            # Mock the paper argument parsing, summary loading, and paper processing
+            with patch('my_research_assistant.paper_manager.parse_paper_argument', return_value=(mock_paper, '')):
                 with patch('my_research_assistant.paper_manager.load_paper_summary', return_value=(False, 'No summary found')):
                     with patch('rich.prompt.Confirm.ask', return_value=True):
                         with patch.object(runner, 'process_paper_selection', return_value=mock_result):
                             # Test summary command with missing summary
-                            await chat.process_summary_command('test.999')
+                            await chat.process_summary_command('2107.03374v1')
 
                             # Verify state transitioned to summarized
                             assert chat.state_machine.current_state.value == "summarized"
@@ -637,16 +637,16 @@ class TestSummaryCommandEnhancements:
             # Create a mock paper with existing summary
             mock_paper = Mock()
             mock_paper.title = 'Test Paper With Summary'
-            mock_paper.paper_id = 'test.123'
+            mock_paper.paper_id = '2210.12345v1'
             mock_paper.authors = ['Test Author']
 
             existing_summary = "This is an existing summary content"
 
-            # Mock the paper resolution and summary loading
-            with patch('my_research_assistant.paper_manager.resolve_paper_reference', return_value=(mock_paper, '')):
+            # Mock the paper argument parsing and summary loading
+            with patch('my_research_assistant.paper_manager.parse_paper_argument', return_value=(mock_paper, '')):
                 with patch('my_research_assistant.paper_manager.load_paper_summary', return_value=(True, existing_summary)):
                     # Test summary command with existing summary
-                    await chat.process_summary_command('test.123')
+                    await chat.process_summary_command('2210.12345v1')
 
                     # Verify state transitioned to summarized with existing content
                     assert chat.state_machine.current_state.value == "summarized"

@@ -1,5 +1,5 @@
 ---
-status: partially implemented
+status: implemented
 ---
 # Design for specifying papers on commands
 
@@ -20,8 +20,8 @@ paper:
    `find`, `list`, `sem-search`, or `research` command), the user can specify a positive integer. This
     integer represents a 1-indexed reference to a paper in the the `last_query_set` list.
 2. The user can provide an arxiv paper id ((e.g. "2107.03374v2"). The paper id should correspond to one
-   of the downloaded papers. This way of specifying a paper should work in any workflow state, even
-   if `last_query_set` is empty.
+   of the downloaded papers in the entire repository (not just the current `last_query_set`). This way
+   of specifying a paper should work in any workflow state, even if `last_query_set` is empty.
     
 ## State management
 The state management design has been specified in
@@ -55,9 +55,9 @@ Here are some specific cases that should result in an error message to the user:
 3. If the user provides something that looks like a arxiv paper id, but it doesn't correspond to a downloaded
    paper, that is an error.
 4. If the user provides an arxiv paper id without a version (e.g. "2107.03374"), and only one version of
-   that paper has been downloaded, select the downloaded paper. If there is more than one version of the
-   paper that has been downloaded (e.g. "2107.03374v1" and "2107.03374v2"), providing an error message asking
-   the user to specify a version.
+   that paper has been downloaded in the entire repository, select the downloaded paper. If there is more
+   than one version of the paper that has been downloaded (e.g. "2107.03374v1" and "2107.03374v2"), provide
+   an error message asking the user to specify a version.
 5. If the user does not provide any argument to the command or more than one argument, that is an error.
 6. If the user provides an argument that is neither an integer nor an arxiv paper id, that is an error.
 7. If, for any reason, the selected paper doesn't existing in the pdfs directory, that is an error.
@@ -171,7 +171,7 @@ You:
 ```
 
 The command should be included in the error message, as shown above. Thus, you will need to provide the attempted
-command as an argument to the argument-processsing function (see below).
+command as an argument to the argument-processing function (see below).
 
 ### Invalid paper number after list, etc.
 Here is an example of an error situation where the user performed a `list` and then ran `summary` providing
@@ -225,5 +225,74 @@ You:
 ```
 
 ## Implementation
-There should be a common function for parsing the command arguments that does the validation and returns the
-specified paper id (or paper metadata object if that makes more sense). That function should have unit tests.
+The design has been implemented with a common function for parsing command arguments that performs validation and returns
+the specified paper metadata object. This function has comprehensive unit tests covering all edge cases.
+
+### Design Clarifications
+Based on implementation discussions, the following clarifications have been made:
+
+1. **Repository-wide paper lookup**: When a user specifies a paper ID (with or without version), the system
+   should search the entire repository of downloaded papers, not just the current `last_query_set`.
+
+2. **Command name in error messages**: The common parsing function should take the command name as a parameter
+   and include it in error messages for better user feedback.
+
+3. **State management responsibility**: The common parsing function should not modify workflow state. Individual
+   commands are responsible for calling state transition methods after successful execution.
+
+4. **List command scope**: The `list` command should remain argument-free and show all downloaded papers.
+
+### Implementation Summary
+
+The design was implemented through the following components:
+
+#### New Functions in `paper_manager.py`
+
+1. **`parse_paper_argument(command_name, argument, last_query_set, file_locations)`**: The main function that implements all validation logic according to the design. Returns a tuple of (PaperMetadata, error_message).
+
+2. **`is_arxiv_id_format(text)`**: Validates whether a string matches ArXiv ID format using regex pattern matching.
+
+3. **`find_downloaded_papers_by_base_id(base_id, file_locations)`**: Finds all downloaded versions of a paper by its base ID (without version).
+
+4. **`get_all_downloaded_papers(file_locations)`**: Retrieves metadata for all papers that have been downloaded (have PDFs).
+
+#### Updated Command Handlers
+
+The following command handlers in `chat.py` were updated to use the new parsing function:
+
+- **`process_summarize_command()`**: Updated to use `parse_paper_argument()` and handle state transitions
+- **`process_summary_command()`**: Updated to use `parse_paper_argument()` and handle state transitions
+- **`process_open_command()`**: Updated to use `parse_paper_argument()` and handle state transitions
+- **`process_reindex_paper_command()`**: Updated to use `parse_paper_argument()` (no state change per design)
+
+#### State Machine Enhancement
+
+Added `transition_after_open()` method to the state machine to handle state transitions after the open command per the design specification.
+
+#### Comprehensive Testing
+
+Created `test_paper_argument_parsing.py` with 17 test cases covering:
+
+- ArXiv ID format validation (valid and invalid patterns)
+- Finding downloaded papers by base ID
+- All error cases specified in the design:
+  - Empty arguments
+  - Multiple arguments
+  - Integer references with empty query sets
+  - Out-of-range integer references
+  - Invalid formats
+  - ArXiv IDs without versions (single/multiple matches)
+  - Missing papers and PDFs
+  - Metadata loading errors
+
+#### Assumptions Made
+
+1. **ArXiv ID Pattern**: Used regex pattern `^\d{4}\.\d{4,5}(v\d+)?$` to match ArXiv IDs, supporting both old and new formats.
+
+2. **PDF File Discovery**: Papers are discovered by scanning the PDFs directory for `.pdf` files and extracting paper IDs from filenames.
+
+3. **Error Message Format**: All error messages follow the pattern `❌ {command_name} failed: {specific_error_details}` for consistency.
+
+4. **State Transitions**: Commands that successfully parse arguments trigger appropriate state transitions that clear `last_query_set` and set `selected_paper`, except for maintenance commands like `reindex-paper`.
+
+The implementation fully satisfies the design requirements while maintaining backward compatibility with existing functionality.
