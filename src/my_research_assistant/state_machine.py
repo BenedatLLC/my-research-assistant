@@ -49,15 +49,33 @@ class StateVariables:
         self.selected_paper = None
         # Keep existing draft if we're in a search/research state
 
-    def set_selected_paper(self, paper: PaperMetadata, draft_content: str):
-        """Set the selected paper and its associated draft."""
+    def set_selected_paper(self, paper: PaperMetadata, draft_content: str, preserve_query_set: bool = False):
+        """Set the selected paper and its associated draft.
+
+        Args:
+            paper: The selected paper metadata
+            draft_content: Content for the draft (summary, etc.)
+            preserve_query_set: If True, preserve last_query_set; if False, clear it
+        """
         self.selected_paper = paper
         self.draft = draft_content
-        self.last_query_set = []  # Clear query set when selecting a specific paper
+        if not preserve_query_set:
+            self.last_query_set = []
 
     def set_draft(self, content: str):
         """Update the draft content."""
         self.draft = content
+
+    def is_paper_in_query_set(self, paper_id: str) -> bool:
+        """Check if a paper ID is in the current query set.
+
+        Args:
+            paper_id: Paper ID to check (e.g., "2107.03374v1")
+
+        Returns:
+            True if paper ID is in last_query_set, False otherwise
+        """
+        return paper_id in self.last_query_set
 
 
 class StateMachine:
@@ -104,7 +122,14 @@ class StateMachine:
             ]
         }
 
-        return global_commands + state_commands[self.current_state]
+        commands = global_commands + state_commands[self.current_state]
+
+        # Add dynamic commands for SUMMARIZED state when query set exists
+        if (self.current_state == WorkflowState.SUMMARIZED and
+            self.state_vars.last_query_set):
+            commands.extend(["summary <number|id>", "open <number|id>"])
+
+        return commands
 
     def is_command_valid(self, command: str) -> bool:
         """Check if a command is valid in the current state."""
@@ -143,7 +168,9 @@ class StateMachine:
     def transition_after_summarize(self, paper: PaperMetadata, summary: str) -> WorkflowState:
         """Handle state transition after summarize command."""
         self.current_state = WorkflowState.SUMMARIZED
-        self.state_vars.set_selected_paper(paper, summary)
+        # Preserve query set if the paper is in it, clear it otherwise
+        preserve_query_set = self.state_vars.is_paper_in_query_set(paper.paper_id)
+        self.state_vars.set_selected_paper(paper, summary, preserve_query_set=preserve_query_set)
         return self.current_state
 
     def transition_after_sem_search(self, found_results: bool, search_results: str, paper_ids: List[str], original_query: str = "") -> WorkflowState:
@@ -171,13 +198,17 @@ class StateMachine:
     def transition_after_summary_view(self, paper: PaperMetadata, summary: str) -> WorkflowState:
         """Handle state transition after viewing a paper summary."""
         self.current_state = WorkflowState.SUMMARIZED
-        self.state_vars.set_selected_paper(paper, summary)
+        # Preserve query set if the paper is in it, clear it otherwise
+        preserve_query_set = self.state_vars.is_paper_in_query_set(paper.paper_id)
+        self.state_vars.set_selected_paper(paper, summary, preserve_query_set=preserve_query_set)
         return self.current_state
 
     def transition_after_open(self, paper: PaperMetadata) -> WorkflowState:
         """Handle state transition after opening a paper."""
         self.current_state = WorkflowState.SUMMARIZED
-        self.state_vars.set_selected_paper(paper, "")  # No summary content for open command
+        # Preserve query set if the paper is in it, clear it otherwise
+        preserve_query_set = self.state_vars.is_paper_in_query_set(paper.paper_id)
+        self.state_vars.set_selected_paper(paper, "", preserve_query_set=preserve_query_set)  # No summary content for open command
         return self.current_state
 
     def stay_in_current_state(self):

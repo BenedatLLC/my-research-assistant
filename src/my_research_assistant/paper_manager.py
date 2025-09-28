@@ -347,3 +347,102 @@ def parse_paper_argument(
             return None, f"❌ {command_name} failed: Could not load metadata for paper {paper_id}"
     except Exception as e:
         return None, f"❌ {command_name} failed: Error loading paper {paper_id}: {str(e)}"
+
+
+def parse_paper_argument_enhanced(
+    command_name: str,
+    argument: str,
+    last_query_set: List[str],
+    file_locations: FileLocations
+) -> Tuple[Optional[PaperMetadata], str, bool]:
+    """Enhanced version of parse_paper_argument that also returns resolution method.
+
+    This function implements the design specified in designs/command-arguments.md.
+    It handles both integer references (to last_query_set) and ArXiv ID references
+    (to entire repository) with comprehensive error handling.
+
+    Args:
+        command_name: Name of the command for error messages
+        argument: The paper argument string to parse
+        last_query_set: List of paper IDs from last query
+        file_locations: File locations configuration
+
+    Returns:
+        Tuple of (PaperMetadata if found, error_message if not found, was_resolved_by_integer)
+        The third element is True if resolved by integer reference, False if by ArXiv ID
+    """
+    from .arxiv_downloader import get_paper_metadata
+
+    if not argument or not argument.strip():
+        return None, f"❌ {command_name} failed: Please provide a paper number or ID", False
+
+    argument = argument.strip()
+
+    # Check for multiple arguments (split by whitespace)
+    if len(argument.split()) > 1:
+        return None, f"❌ {command_name} failed: Please provide exactly one paper number or ID", False
+
+    # Try parsing as integer first (1-indexed reference to last_query_set)
+    try:
+        paper_num = int(argument)
+        if not last_query_set:
+            return None, f"❌ {command_name} failed: No papers in current list. Use 'find' or 'list' to populate papers first", False
+
+        if 1 <= paper_num <= len(last_query_set):
+            paper_id = last_query_set[paper_num - 1]
+            try:
+                paper = get_paper_metadata(paper_id.split('v')[0], file_locations)
+                if paper:
+                    paper.paper_id = paper_id
+                    # Verify PDF exists
+                    pdf_path = paper.get_local_pdf_path(file_locations)
+                    if not os.path.exists(pdf_path):
+                        return None, f"❌ {command_name} failed: Paper {paper_id} PDF not found at {pdf_path}", False
+                    return paper, "", True  # True = resolved by integer
+                else:
+                    return None, f"❌ {command_name} failed: Could not load metadata for paper {paper_id}", False
+            except Exception as e:
+                return None, f"❌ {command_name} failed: Error loading paper {paper_id}: {str(e)}", False
+        else:
+            return None, f"❌ {command_name} failed: Invalid paper number '{argument}'. Choose 1-{len(last_query_set)}", False
+
+    except ValueError:
+        pass
+
+    # Not an integer, check if it looks like an ArXiv ID
+    if not is_arxiv_id_format(argument):
+        return None, f"❌ {command_name} failed: '{argument}' is not a valid paper number or ArXiv ID", False
+
+    # Handle ArXiv ID (search entire repository)
+    if 'v' in argument:
+        # Specific version provided
+        paper_id = argument
+        base_id = argument.split('v')[0]
+    else:
+        # No version provided, need to find downloaded versions
+        base_id = argument
+        downloaded_versions = find_downloaded_papers_by_base_id(base_id, file_locations)
+
+        if not downloaded_versions:
+            return None, f"❌ {command_name} failed: Paper {base_id} has not been downloaded", False
+
+        if len(downloaded_versions) == 1:
+            paper_id = downloaded_versions[0]
+        else:
+            versions_str = ', '.join(downloaded_versions)
+            return None, f"❌ {command_name} failed: Multiple versions found for {base_id} ({versions_str}). Please specify version", False
+
+    # Load the paper metadata
+    try:
+        paper = get_paper_metadata(base_id, file_locations)
+        if paper:
+            paper.paper_id = paper_id
+            # Verify PDF exists
+            pdf_path = paper.get_local_pdf_path(file_locations)
+            if not os.path.exists(pdf_path):
+                return None, f"❌ {command_name} failed: Paper {paper_id} has not been downloaded. PDF not found at {pdf_path}", False
+            return paper, "", False  # False = resolved by ArXiv ID
+        else:
+            return None, f"❌ {command_name} failed: Could not load metadata for paper {paper_id}", False
+    except Exception as e:
+        return None, f"❌ {command_name} failed: Error loading paper {paper_id}: {str(e)}", False

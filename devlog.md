@@ -1,11 +1,16 @@
 # Development log
 
 ## TODO
-* Consider adjusting the state management around paper argument commands.
 * Implement the open command
 * Finish the notes command
 
 ## Sunday Sept 28, 2025
+* Updated state management for paper command arguments. If you select a specific paper, it doesn't not clear
+  the current query set *unless* that paper is not in the query set. I did this with Claude as follows:
+  1. Described the desired changes and asked it to review the design documents for what would need to change
+     in the design. Also told it to ask me for clarifications to the design.
+  2. I provided the clarifications and asked it to update the design documents.
+  3. I then asked it to proceed with the implementation, giving it steps 2 - 7 below.
 * Wrote design and implementation for paper command arguments
 * Here's the dev flow I used with the paper command arguments:
   1. Write design document

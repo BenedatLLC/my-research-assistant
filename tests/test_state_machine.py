@@ -604,7 +604,7 @@ class TestSummaryCommandEnhancements:
             mock_result.summary = "Generated test summary content"
 
             # Mock the paper argument parsing, summary loading, and paper processing
-            with patch('my_research_assistant.paper_manager.parse_paper_argument', return_value=(mock_paper, '')):
+            with patch('my_research_assistant.paper_manager.parse_paper_argument_enhanced', return_value=(mock_paper, '', False)):
                 with patch('my_research_assistant.paper_manager.load_paper_summary', return_value=(False, 'No summary found')):
                     with patch('rich.prompt.Confirm.ask', return_value=True):
                         with patch.object(runner, 'process_paper_selection', return_value=mock_result):
@@ -643,7 +643,7 @@ class TestSummaryCommandEnhancements:
             existing_summary = "This is an existing summary content"
 
             # Mock the paper argument parsing and summary loading
-            with patch('my_research_assistant.paper_manager.parse_paper_argument', return_value=(mock_paper, '')):
+            with patch('my_research_assistant.paper_manager.parse_paper_argument_enhanced', return_value=(mock_paper, '', False)):
                 with patch('my_research_assistant.paper_manager.load_paper_summary', return_value=(True, existing_summary)):
                     # Test summary command with existing summary
                     await chat.process_summary_command('2210.12345v1')

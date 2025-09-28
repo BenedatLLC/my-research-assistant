@@ -11,6 +11,7 @@ from unittest.mock import patch, MagicMock
 
 from my_research_assistant.paper_manager import (
     parse_paper_argument,
+    parse_paper_argument_enhanced,
     is_arxiv_id_format,
     find_downloaded_papers_by_base_id,
     get_all_downloaded_papers
@@ -285,6 +286,194 @@ class TestParsePaperArgument:
         assert paper is None
         assert "Could not load metadata for paper 2107.03374v1" in error
         assert "test failed" in error
+
+
+class TestParsePaperArgumentEnhanced:
+    """Test the enhanced parse_paper_argument function that returns resolution method."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.tmpdir = tempfile.mkdtemp()
+        self.pdfs_dir = os.path.join(self.tmpdir, "pdfs")
+        os.makedirs(self.pdfs_dir)
+
+        self.file_locations = FileLocations(
+            doc_home=self.tmpdir,
+            index_dir=os.path.join(self.tmpdir, "index"),
+            summaries_dir=os.path.join(self.tmpdir, "summaries"),
+            images_dir=os.path.join(self.tmpdir, "images"),
+            pdfs_dir=self.pdfs_dir,
+            extracted_paper_text_dir=os.path.join(self.tmpdir, "extracted"),
+            notes_dir=os.path.join(self.tmpdir, "notes"),
+            results_dir=os.path.join(self.tmpdir, "results"),
+            paper_metadata_dir=os.path.join(self.tmpdir, "metadata")
+        )
+
+        # Create mock PDF files
+        test_files = ["2107.03374v1.pdf", "2107.03374v2.pdf", "2210.12345v1.pdf"]
+        for filename in test_files:
+            with open(os.path.join(self.pdfs_dir, filename), 'w') as f:
+                f.write("mock pdf")
+
+    def teardown_method(self):
+        """Clean up test fixtures."""
+        import shutil
+        shutil.rmtree(self.tmpdir)
+
+    @patch('my_research_assistant.arxiv_downloader.get_paper_metadata')
+    def test_enhanced_integer_resolution(self, mock_get_metadata):
+        """Test that integer resolution returns True for was_resolved_by_integer."""
+        mock_paper = MagicMock()
+        mock_paper.paper_id = "2107.03374v1"
+        mock_paper.get_local_pdf_path.return_value = os.path.join(self.pdfs_dir, "2107.03374v1.pdf")
+        mock_get_metadata.return_value = mock_paper
+
+        last_query_set = ["2107.03374v1", "2210.12345v1"]
+
+        paper, error, was_resolved_by_integer = parse_paper_argument_enhanced(
+            "test", "1", last_query_set, self.file_locations
+        )
+
+        assert paper is not None
+        assert error == ""
+        assert was_resolved_by_integer is True
+
+    @patch('my_research_assistant.arxiv_downloader.get_paper_metadata')
+    def test_enhanced_arxiv_id_resolution(self, mock_get_metadata):
+        """Test that ArXiv ID resolution returns False for was_resolved_by_integer."""
+        mock_paper = MagicMock()
+        mock_paper.paper_id = "2107.03374v1"
+        mock_paper.get_local_pdf_path.return_value = os.path.join(self.pdfs_dir, "2107.03374v1.pdf")
+        mock_get_metadata.return_value = mock_paper
+
+        paper, error, was_resolved_by_integer = parse_paper_argument_enhanced(
+            "test", "2107.03374v1", [], self.file_locations
+        )
+
+        assert paper is not None
+        assert error == ""
+        assert was_resolved_by_integer is False
+
+    def test_enhanced_error_cases_return_false(self):
+        """Test that error cases return False for was_resolved_by_integer."""
+        # Empty argument
+        paper, error, was_resolved_by_integer = parse_paper_argument_enhanced(
+            "test", "", [], self.file_locations
+        )
+        assert paper is None
+        assert "Please provide a paper number or ID" in error
+        assert was_resolved_by_integer is False
+
+        # Invalid format
+        paper, error, was_resolved_by_integer = parse_paper_argument_enhanced(
+            "test", "invalid-format", [], self.file_locations
+        )
+        assert paper is None
+        assert "not a valid paper number or ArXiv ID" in error
+        assert was_resolved_by_integer is False
+
+
+class TestStateVariableEnhancements:
+    """Test the enhanced state variable functionality."""
+
+    def test_is_paper_in_query_set(self):
+        """Test the is_paper_in_query_set method."""
+        from my_research_assistant.state_machine import StateVariables
+
+        state_vars = StateVariables()
+        state_vars.last_query_set = ['2107.03374v1', '2210.12345v1', '2306.11698v1']
+
+        # Test papers that are in the set
+        assert state_vars.is_paper_in_query_set('2107.03374v1') is True
+        assert state_vars.is_paper_in_query_set('2210.12345v1') is True
+        assert state_vars.is_paper_in_query_set('2306.11698v1') is True
+
+        # Test papers that are not in the set
+        assert state_vars.is_paper_in_query_set('2404.16130v2') is False
+        assert state_vars.is_paper_in_query_set('9999.99999v1') is False
+
+        # Test with empty query set
+        state_vars.last_query_set = []
+        assert state_vars.is_paper_in_query_set('2107.03374v1') is False
+
+    def test_set_selected_paper_preserve_query_set(self):
+        """Test the preserve_query_set parameter in set_selected_paper."""
+        from my_research_assistant.state_machine import StateVariables
+        from my_research_assistant.project_types import PaperMetadata
+
+        state_vars = StateVariables()
+        original_query_set = ['2107.03374v1', '2210.12345v1', '2306.11698v1']
+        state_vars.last_query_set = original_query_set.copy()
+
+        # Create a mock paper
+        mock_paper = MagicMock()
+        mock_paper.paper_id = "2107.03374v1"
+
+        # Test with preserve_query_set=True
+        state_vars.set_selected_paper(mock_paper, "test summary", preserve_query_set=True)
+        assert state_vars.last_query_set == original_query_set
+        assert state_vars.selected_paper == mock_paper
+        assert state_vars.draft == "test summary"
+
+        # Reset and test with preserve_query_set=False
+        state_vars.last_query_set = original_query_set.copy()
+        state_vars.set_selected_paper(mock_paper, "test summary", preserve_query_set=False)
+        assert state_vars.last_query_set == []
+        assert state_vars.selected_paper == mock_paper
+        assert state_vars.draft == "test summary"
+
+        # Test default behavior (should clear query set)
+        state_vars.last_query_set = original_query_set.copy()
+        state_vars.set_selected_paper(mock_paper, "test summary")
+        assert state_vars.last_query_set == []
+
+
+class TestStateMachineTransitions:
+    """Test the enhanced state machine transition methods."""
+
+    def test_transition_after_summarize_with_query_set_preservation(self):
+        """Test that transition_after_summarize preserves query set conditionally."""
+        from my_research_assistant.state_machine import StateMachine
+
+        state_machine = StateMachine()
+        state_machine.state_vars.last_query_set = ['2107.03374v1', '2210.12345v1']
+
+        # Create mock paper that is in the query set
+        mock_paper_in_set = MagicMock()
+        mock_paper_in_set.paper_id = "2107.03374v1"
+
+        # Test with paper in query set (should preserve)
+        state_machine.transition_after_summarize(mock_paper_in_set, "test summary")
+        assert state_machine.state_vars.last_query_set == ['2107.03374v1', '2210.12345v1']
+        assert state_machine.state_vars.selected_paper == mock_paper_in_set
+
+        # Reset and test with paper not in query set (should clear)
+        state_machine.state_vars.last_query_set = ['2107.03374v1', '2210.12345v1']
+        mock_paper_not_in_set = MagicMock()
+        mock_paper_not_in_set.paper_id = "2404.16130v2"
+
+        state_machine.transition_after_summarize(mock_paper_not_in_set, "test summary")
+        assert state_machine.state_vars.last_query_set == []
+        assert state_machine.state_vars.selected_paper == mock_paper_not_in_set
+
+    def test_dynamic_valid_commands_in_summarized_state(self):
+        """Test that valid commands are dynamic in SUMMARIZED state."""
+        from my_research_assistant.state_machine import StateMachine, WorkflowState
+
+        state_machine = StateMachine()
+        state_machine.current_state = WorkflowState.SUMMARIZED
+
+        # Test with empty query set (should not include numbered commands)
+        state_machine.state_vars.last_query_set = []
+        valid_commands = state_machine.get_valid_commands()
+        assert "summary <number|id>" not in valid_commands
+        assert "open <number|id>" not in valid_commands
+
+        # Test with non-empty query set (should include numbered commands)
+        state_machine.state_vars.last_query_set = ['2107.03374v1', '2210.12345v1']
+        valid_commands = state_machine.get_valid_commands()
+        assert "summary <number|id>" in valid_commands
+        assert "open <number|id>" in valid_commands
 
 
 if __name__ == "__main__":

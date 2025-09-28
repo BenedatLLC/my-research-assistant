@@ -714,12 +714,12 @@ Use 'status' for detailed state information.
 
     async def process_reindex_paper_command(self, paper_id: str):
         """Process a reindex-paper command to reindex a specific paper."""
-        from .paper_manager import parse_paper_argument
+        from .paper_manager import parse_paper_argument_enhanced
         from .reindex_paper import reindex_paper, ReindexError
 
         try:
-            # Parse paper argument using new common function
-            paper, error_msg = parse_paper_argument(
+            # Parse paper argument using enhanced function
+            paper, error_msg, was_resolved_by_integer = parse_paper_argument_enhanced(
                 "reindex-paper",
                 paper_id,
                 self.state_machine.state_vars.last_query_set,
@@ -750,11 +750,11 @@ Use 'status' for detailed state information.
 
     async def process_summarize_command(self, reference: str):
         """Process a summarize command for the new state machine workflow."""
-        from .paper_manager import parse_paper_argument
+        from .paper_manager import parse_paper_argument_enhanced
 
         try:
-            # Parse paper argument using new common function
-            paper, error_msg = parse_paper_argument(
+            # Parse paper argument using enhanced function
+            paper, error_msg, was_resolved_by_integer = parse_paper_argument_enhanced(
                 "summarize",
                 reference,
                 self.state_machine.state_vars.last_query_set,
@@ -769,7 +769,7 @@ Use 'status' for detailed state information.
 
             # Handle the result and update state machine
             if hasattr(result, 'paper') and hasattr(result, 'summary'):
-                # Store the summary in state machine and clear last_query_set
+                # Store the summary in state machine with new conditional logic
                 self.state_machine.transition_after_summarize(result.paper, result.summary)
 
                 # Display the summary
@@ -787,12 +787,12 @@ Use 'status' for detailed state information.
 
     async def process_summary_command(self, reference: str):
         """Process a summary command to view an existing paper summary."""
-        from .paper_manager import parse_paper_argument, load_paper_summary
+        from .paper_manager import parse_paper_argument_enhanced, load_paper_summary
         from rich.prompt import Confirm
 
         try:
-            # Parse paper argument using new common function
-            paper, error_msg = parse_paper_argument(
+            # Parse paper argument using enhanced function
+            paper, error_msg, was_resolved_by_integer = parse_paper_argument_enhanced(
                 "summary",
                 reference,
                 self.state_machine.state_vars.last_query_set,
@@ -865,12 +865,12 @@ Use 'status' for detailed state information.
 
     async def process_open_command(self, reference: str):
         """Process an open command to view paper content."""
-        from .paper_manager import parse_paper_argument
+        from .paper_manager import parse_paper_argument_enhanced
         from .result_storage import open_paper_content
 
         try:
-            # Parse paper argument using new common function
-            paper, error_msg = parse_paper_argument(
+            # Parse paper argument using enhanced function
+            paper, error_msg, was_resolved_by_integer = parse_paper_argument_enhanced(
                 "open",
                 reference,
                 self.state_machine.state_vars.last_query_set,

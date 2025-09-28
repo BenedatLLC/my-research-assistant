@@ -128,9 +128,11 @@ entering those states, and a description of the state:
 |             |                            |                                                        | research <query>      |
 |             |                            |                                                        | list                  |
 |-------------|----------------------------|--------------------------------------------------------|-----------------------|
-| summarized  | last_query_set=[]          | A paper has been summarized and saved. The user can    | improve <text>        |
-|             | selected_paper=Pn          | do more with this paper or start another query.        | notes                 |
-|             | draft="..."                |                                                        | find <query>          |
+| summarized  | last_query_set=[P1,P2,...] | A paper has been summarized and saved. The user can    | improve <text>        |
+|             | OR last_query_set=[]       | do more with this paper or start another query.        | notes                 |
+|             | selected_paper=Pn          | If last_query_set exists, numbered references work.    | summary <number|id>   |
+|             | draft="..."                |                                                        | open <number|id>      |
+|             |                            |                                                        | find <query>          |
 |             |                            |                                                        | sem-search <query>    |
 |             |                            |                                                        | research <query>      |
 |             |                            |                                                        | list                  |
@@ -168,15 +170,18 @@ the state variables by the command, and the next state(s).
 |                       |                   | selected_paper=None        |  if papers found        |
 |                       |                   | draft=None                 | initial, otherwise      |
 |-----------------------|-------------------|----------------------------|-------------------------|
-| summarize <number|id> | select-new        | last_query_set=[]          | summarized              |
+| summarize <number|id> | select-new OR     | If selected paper is in    | summarized              |
+|                       | ANY (if ArXiv ID) | last_query_set:            |                         |
+|                       |                   | last_query_set preserved   |                         |
+|                       |                   | If not: last_query_set=[]  |                         |
 |                       |                   | selected_paper=Pn          |                         |
 |                       |                   | draft="..."                |                         |
 |-----------------------|-------------------|----------------------------|-------------------------|
-| improve <feedback>    | summarized        | last_query_set=[]          | summarized              |
+| improve <feedback>    | summarized        | last_query_set preserved   | summarized              |
 |                       |                   | selected_paper=Pn          |                         |
 |                       |                   | draft="..."                |                         |
 |-----------------------|-------------------|----------------------------|-------------------------|
-| notes                 | summarized        | last_query_set=[]          | summarized              |
+| notes                 | summarized        | last_query_set preserved   | summarized              |
 |                       |                   | selected_paper=Pn          |                         |
 |                       |                   | draft="..."                |                         |
 |-----------------------|-------------------|----------------------------|-------------------------|
@@ -204,23 +209,31 @@ the state variables by the command, and the next state(s).
 |                       |                   | selected_paper=None        |                         |
 |                       |                   | draft="..."                |                         |
 |-----------------------|-------------------|----------------------------|-------------------------|
-| summary <number|id>   | sem-search or     | If summary exists:         | summarized              |
-|                       | research or       | last_query_set[P1,P2,...]  |                         |
-|                       | select-view       | selected_paper=Pn          |                         |
+| summary <number|id>   | sem-search or     | If selected paper is in    | summarized              |
+|                       | research or       | last_query_set:            |                         |
+|                       | select-view OR    | last_query_set preserved   |                         |
+|                       | ANY (if ArXiv ID) | If not: last_query_set=[]  |                         |
+|                       |                   | selected_paper=Pn          |                         |
 |                       |                   | draft="existing summary"   |                         |
 |                       |                   | If summary missing:        |                         |
 |                       |                   | - Ask user to create       |                         |
 |                       |                   | - If yes: same as summarize| summarized if created   |
 |                       |                   | - If no: stay in state     | current state if not    |
 |-----------------------|-------------------|----------------------------|-------------------------|
-| open <number|id>      | summarized or     | last_query_set[P1,P2,...]  | current state           |
-|                       | sem-search or     | selected_paper=None        |                         |
-|                       | research or       | draft="..."                |                         |
-|                       | select-view       |                            |                         |
+| open <number|id>      | summarized or     | If selected paper is in    | summarized              |
+|                       | sem-search or     | last_query_set:            |                         |
+|                       | research or       | last_query_set preserved   |                         |
+|                       | select-view OR    | If not: last_query_set=[]  |                         |
+|                       | ANY (if ArXiv ID) | selected_paper=Pn          |                         |
+|                       |                   | draft="paper content"      |                         |
 |-----------------------|-------------------|----------------------------|-------------------------|
 | list                  | ANY               | last_query_set=[P1,P2...]  | select-view             |
 |                       |                   | selected_paper=None        |                         |
 |                       |                   | draft=None                 |                         |
+|-----------------------|-------------------|----------------------------|-------------------------|
+| reindex-paper <id>    | ANY               | last_query_set preserved   | current state           |
+|                       |                   | selected_paper preserved   | (no state change)       |
+|                       |                   | draft preserved            |                         |
 |-----------------------|-------------------|----------------------------|-------------------------|
 | summarize-all         | ANY               | last_query_set=[]          | initial                 |
 |                       |                   | selected_paper=None        | (resets state)          |
@@ -363,27 +376,28 @@ The following command flows should be included in the unit tests to cover the ba
 
 ## Test Coverage Summary
 
-The 9 test flows above provide comprehensive coverage of the state machine:
+The 12 test flows above provide comprehensive coverage of the state machine:
 
 ### State Coverage
 - **initial**: Entry point for all flows
-- **select-new**: Covered in flows #1, #2, #4, #5, #6, #8
-- **select-view**: Covered in flows #2, #4, #5, #6, #8
+- **select-new**: Covered in flows #1, #2, #4, #5, #6, #8, #10, #12
+- **select-view**: Covered in flows #2, #4, #5, #6, #8, #9, #10
 - **summarized**: Covered in all flows except #7
-- **sem-search**: Covered in flows #1, #4, #6, #7, #8
-- **research**: Covered in flows #3, #4, #6, #7, #8
+- **sem-search**: Covered in flows #1, #4, #6, #7, #8, #11
+- **research**: Covered in flows #3, #4, #6, #7, #8, #11
 
 ### Command Coverage
 - **find**: Tested from initial, select-new, summarized, select-view states
-- **summarize**: Tested for valid and invalid selections
+- **summarize**: Tested for valid and invalid selections, with preserved query sets
 - **improve**: Tested in summarized, sem-search, and research states
 - **save**: Tested in sem-search and research states (multiple saves)
 - **notes**: Tested in summarized state
 - **sem-search**: Tested from all states, with and without results
 - **list**: Tested from multiple states
-- **summary**: Tested for viewing summaries from different result sets, missing summary handling with user choice
-- **open**: Tested for viewing paper content, with error handling
+- **summary**: Tested for viewing summaries from different result sets, missing summary handling with user choice, ArXiv ID usage from all states, preserved query sets
+- **open**: Tested for viewing paper content, with error handling, ArXiv ID usage
 - **research**: Tested from initial, summarized, and select-view states
+- **reindex-paper**: Tested with both numbered references and ArXiv IDs, state preservation
 
 ### Error Handling Coverage
 - No results found (flows #5)
@@ -397,6 +411,9 @@ The 9 test flows above provide comprehensive coverage of the state machine:
 - Multiple improve/save cycles (flows #7)
 - Complex multi-command sequences (flows #8)
 - Direct state transitions without intermediates (flows #6)
+- Preserved vs. cleared query sets (flows #10, #11)
+- ArXiv ID usage from all states (flows #11)
+- Mixed numbered and ArXiv ID usage patterns (flows #10)
 
 ### State Variable Testing
 Each flow tests that state variables (`last_query_set`, `selected_paper`, `draft`) are properly:
@@ -405,7 +422,49 @@ Each flow tests that state variables (`last_query_set`, `selected_paper`, `draft
 - Cleared when transitioning to appropriate states
 - Preserved across multiple operations in the same state
 
-These test flows ensure that the state machine behaves correctly under all normal usage patterns, error conditions, and edge cases.
+### Flow #10: Preserved query set with mixed number and ArXiv ID usage
+
+1. list
+2. summary 1  # Select paper #1 from list (preserves query set)
+3. summary 2  # Select paper #2 from list (preserves query set)
+4. summary 2404.16130v2  # ArXiv ID not in list (clears query set)
+5. find "transformers"  # New query
+6. summary 1  # Select from new query set
+7. summary 2107.03374v2  # ArXiv ID in query set (preserves query set)
+8. summary 3  # Should still work with preserved query set
+9. exit
+
+**States tested:** initial → select-view → summarized → summarized → summarized → select-new → summarized → summarized → summarized
+**Key transitions:** Query set preservation/clearing based on whether selected paper is in the set, mixed usage patterns
+
+### Flow #11: ArXiv ID usage from different states
+
+1. summary 2404.16130v2  # ArXiv ID from initial state
+2. improve "Add more details"
+3. sem-search "graph neural networks"
+4. summary 2107.03374v2  # ArXiv ID from sem-search state
+5. open 2210.03629v3  # ArXiv ID from summarized state
+6. research "attention mechanisms"
+7. summary 2306.11698v5  # ArXiv ID from research state
+8. exit
+
+**States tested:** initial → summarized → summarized → sem-search → summarized → summarized → research → summarized
+**Key transitions:** ArXiv ID usage from all states, state transitions with ArXiv IDs
+
+### Flow #12: reindex-paper command with preserved state
+
+1. find "machine learning"
+2. summarize 1
+3. reindex-paper 2  # Should preserve all state
+4. improve "Add more examples"  # Should still work
+5. reindex-paper 2404.16130v2  # ArXiv ID from summarized state
+6. notes  # Should still work with same selected paper
+7. exit
+
+**States tested:** initial → select-new → summarized → summarized → summarized → summarized → summarized
+**Key transitions:** reindex-paper maintaining state, both numbered and ArXiv ID usage
+
+These test flows ensure that the state machine behaves correctly under all normal usage patterns, error conditions, and edge cases, including the new flexible state management rules.
 
 ## Implementation Outline
 
@@ -496,42 +555,60 @@ The state machine workflow has been successfully implemented according to the de
 
 ### Key Implementation Features
 
-**1. Command Set**
-- **Discovery**: `find`, `list`
-- **Paper Processing**: `summarize`, `summary`, `open`
-- **Search & Research**: `sem-search`, `research`
-- **Content Management**: `improve`, `notes`, `save`
-- **System**: `rebuild-index`, `help`, `status`, `history`, `clear`, `quit`
+**1. Enhanced State Management**
+- Conditional query set preservation based on paper selection context
+- Dynamic command validation that changes based on state variables
+- State machine with 6 workflow states and comprehensive transition logic
+- Enhanced paper argument parsing with resolution method tracking
 
-**2. State Transitions**
-- Automatic state transitions based on command results
+**2. Paper Argument Processing**
+- `parse_paper_argument_enhanced()` in `paper_manager.py` returns (paper, error, was_resolved_by_integer)
+- Support for both numbered references (1-indexed to query set) and ArXiv IDs (repository-wide)
+- ArXiv ID format validation with version handling
+- Comprehensive error handling with descriptive user messages
+
+**3. Conditional Query Set Preservation**
+- Query set preserved when selected paper is in current query set
+- Query set cleared when selected paper is not in current query set
+- Enables workflows like `list` → `summary 1` → `summary 2` while maintaining state consistency
+- Implemented in `set_selected_paper()` with `preserve_query_set` parameter
+
+**4. Command Set Implementation**
+- **Discovery**: `find`, `list` (available from any state)
+- **Paper Processing**: `summarize`, `summary`, `open`, `reindex-paper` (enhanced with dual resolution)
+- **Search & Research**: `sem-search`, `research` (available from any state)
+- **Content Management**: `improve`, `notes`, `save` (context-dependent)
+- **System**: `rebuild-index`, `help`, `status`, `history`, `clear`, `quit` (global)
+
+**5. Dynamic Command Validation**
+- Base commands validated against state-specific command sets
+- SUMMARIZED state dynamically adds `summary` and `open` commands when query set exists
+- Real-time validation prevents invalid command execution
+- Clear error messages guide users to valid commands
+
+**6. State Transition Logic**
+- All paper selection commands use conditional preservation logic
+- `transition_after_summarize()`, `transition_after_summary_view()`, `transition_after_open()` check if paper is in query set
+- Automatic state transitions maintain workflow consistency
 - Error handling with fallback to appropriate states
-- State validation before command execution
-- Proper management of state variables across transitions
-
-**3. Result Management**
-- LLM-generated titles for saved search/research results
-- Structured file naming with timestamps
-- Results saved to dedicated results directory
-- Support for both paper summaries and workflow results
-
-**4. User Experience**
-- Clear feedback about current state and available commands
-- Context-aware help system
-- Validation messages when commands are not valid in current state
-- Rich terminal interface with proper markdown rendering
 
 ### File Changes Summary
 
-**New Files Created:**
-- `src/my_research_assistant/state_machine.py` (213 lines)
-- `src/my_research_assistant/paper_manager.py` (176 lines)
-- `src/my_research_assistant/result_storage.py` (194 lines)
-- `tests/test_state_machine.py` (299 lines)
+**Core State Machine Files:**
+- `src/my_research_assistant/state_machine.py` (256 lines): Enhanced with conditional preservation logic
+- `src/my_research_assistant/paper_manager.py` (448 lines): Added enhanced parsing with resolution tracking
+- `tests/test_state_machine.py` (566 lines): Comprehensive test coverage for all state workflows
+- `tests/test_paper_argument_parsing.py` (489 lines): New tests for enhanced parsing functionality
 
-**Major Files Modified:**
-- `src/my_research_assistant/workflow.py`: Added structured result classes and new methods
-- `src/my_research_assistant/chat.py`: Complete refactoring with state machine integration
-- `tests/test_chat.py`: Updated fixtures and tests for new architecture
+**Command Handler Updates:**
+- `src/my_research_assistant/chat.py`: Updated all paper command handlers to use enhanced parsing
+- Commands now determine preservation behavior based on resolution method
+- Consistent error handling and user feedback across all commands
 
-The implementation successfully delivers all design requirements while maintaining backward compatibility and comprehensive test coverage.
+**Test Coverage Enhancement:**
+- 66 total tests covering all new functionality
+- 7 new test classes for enhanced paper argument parsing
+- Comprehensive state machine workflow testing
+- All existing tests updated to pass with new implementation
+
+The implementation successfully delivers the enhanced state management requirements with conditional query set preservation, comprehensive error handling, and full backward compatibility.
