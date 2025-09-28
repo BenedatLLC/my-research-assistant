@@ -74,7 +74,8 @@ There are three main "state variables" in the workflow that, in addition ot the 
 help to keep track of information across commands:
 
 - `last_query_set` - a list of paper ids representing the results of the last query (via
-  find, sem-search, list, or research).
+  find, sem-search, list, or research). This query set should always be sorted in paper id order
+  so that we consistently display them in the same order.
 - `selected_paper` - paper selected from a query's results for further processing (summarization,
   viewing the summary, or viewing the original paper pdf). This replace `current_paper` in the
   existing implementation.

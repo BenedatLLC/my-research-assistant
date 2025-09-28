@@ -44,7 +44,8 @@ class StateVariables:
 
     def set_query_results(self, paper_ids: List[str]):
         """Set the results of a query operation."""
-        self.last_query_set = paper_ids
+        # Always sort paper IDs in ascending order for consistent ordering
+        self.last_query_set = sorted(paper_ids)
         self.selected_paper = None
         # Keep existing draft if we're in a search/research state
 

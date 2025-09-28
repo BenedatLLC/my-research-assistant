@@ -3,3 +3,4 @@ export PATH="`pwd`/.venv/bin:$PATH"
 export DOC_HOME=`pwd`/docs
 export OPENAI_API_KEY=CHANGEME
 export DEFAULT_MODEL="gpt-4o"
+export PDF_VIEWER=/usr/bin/open # works for mac

@@ -5,6 +5,9 @@
 * Implement the open command
 * Finish the notes command
 
+## Sunday Sept 28, 2025
+* Wrote design for paper command arguments
+
 ## Saturday Sept 27, 2025
 ### Added
 
@@ -13,6 +16,9 @@
 * Compound queries did not work (e.g. compare the Deepseek V3 and Kimi K2 models). Asked Claude to improve
   similarity search strategy - it added support for an MMR reranker. This took several tries for Claude
   to get it right - I had to ask it to create a unit test for my specific scenario.
+* `summary 2` was printing the wrong summary because the `list` command was sorting papers but the workflow
+  state variable was not sorted. Changed to keep the current query set in the workflow to always be sorted
+  by paper id so that papers are displayed and accessed in a consistent order.
 
 
 ## Friday Sept 26, 2025

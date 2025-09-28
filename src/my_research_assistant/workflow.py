@@ -917,7 +917,7 @@ Please provide an improved version that addresses the feedback while maintaining
             return QueryResult(
                 success=True,
                 papers=papers,
-                paper_ids=paper_ids,
+                paper_ids=[paper.paper_id for paper in papers],  # Extract IDs from sorted papers
                 message=f"Found {len(papers)} downloaded papers",
                 content=content
             )
