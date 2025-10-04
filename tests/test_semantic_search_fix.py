@@ -97,7 +97,8 @@ class TestSemanticSearchWorkflow:
         runner = WorkflowRunner(mock_llm, mock_interface)
 
         # Mock the search_index function to return diverse results
-        with patch('my_research_assistant.workflow.search_index') as mock_search:
+        # Patch at the vector_store module level since it's imported inside the function
+        with patch('my_research_assistant.vector_store.search_index') as mock_search:
             mock_search.return_value = mock_search_results
 
             # Run semantic search workflow
@@ -165,7 +166,7 @@ Both models demonstrate significant advances in their respective areas."""
 
         runner = WorkflowRunner(mock_llm, mock_interface)
 
-        with patch('my_research_assistant.workflow.search_index') as mock_search:
+        with patch('my_research_assistant.vector_store.search_index') as mock_search:
             mock_search.return_value = diverse_results
 
             result = await runner.start_semantic_search_workflow("compare deepseek v3 and kimi k2")

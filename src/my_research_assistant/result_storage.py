@@ -144,42 +144,86 @@ created: {timestamp}
     return file_path, title
 
 
-def open_paper_content(paper_id: str, file_locations: FileLocations) -> Tuple[bool, str]:
+def open_paper_content(paper_id: str, file_locations: FileLocations) -> Tuple[bool, str, str]:
     """Open and return the content of a paper.
+
+    This function implements the open command design:
+    - If PDF_VIEWER environment variable is set, launches external viewer
+    - If PDF_VIEWER is not set, returns extracted markdown for paging display
 
     Args:
         paper_id: The paper ID to open
         file_locations: File locations configuration
 
     Returns:
-        Tuple of (success, content_or_error_message)
+        Tuple of (success, content_or_error_message, action_type)
+        where action_type is "viewer" (PDF viewer launched), "markdown" (display text), or "error"
     """
-    # Try to find the PDF file
+    import subprocess
+    import shutil
+
+    # Check if PDF exists
     pdf_filename = f"{paper_id}.pdf"
     pdf_path = os.path.join(file_locations.pdfs_dir, pdf_filename)
 
     if not os.path.exists(pdf_path):
-        return False, f"PDF not found for paper {paper_id}"
+        error_msg = f"open failed: Paper {paper_id} has not been downloaded. PDF not found at {pdf_path}"
+        return False, error_msg, "error"
 
-    # For now, return a message indicating the PDF location
-    # In a full implementation, this could extract text from the PDF
-    # or open it in an external viewer
-    content = f"""# Paper Content: {paper_id}
+    # Check for PDF_VIEWER environment variable
+    pdf_viewer = os.environ.get('PDF_VIEWER')
+
+    if pdf_viewer:
+        # Verify the PDF viewer executable exists
+        if not shutil.which(pdf_viewer) and not os.path.exists(pdf_viewer):
+            error_msg = f"open failed: PDF_VIEWER is set to '{pdf_viewer}', which was not found."
+            return False, error_msg, "error"
+
+        # Try to launch the PDF viewer subprocess
+        try:
+            # Launch subprocess in detached mode (non-blocking)
+            # Using Popen with specific flags to ensure it doesn't block the parent process
+            subprocess.Popen(
+                [pdf_viewer, pdf_path],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL,
+                start_new_session=True  # Detach from parent session
+            )
+
+            # Return success message
+            success_msg = f"""# Paper Content: {paper_id}
 
 **PDF Location:** {pdf_path}
 
-**Note:** This is a placeholder for paper content viewing.
-In a full implementation, this would either:
-1. Extract and display text from the PDF
-2. Open the PDF in an external viewer
-3. Show a formatted version of the paper content
-
-**Actions:**
-- View PDF directly: `open "{pdf_path}"`
-- The PDF is available at the path shown above
+Paper has been opened using PDF viewer {pdf_viewer}
 """
+            return True, success_msg, "viewer"
 
-    return True, content
+        except Exception as e:
+            error_msg = f"open failed: Could not launch PDF viewer '{pdf_viewer}'. Error: {str(e)}"
+            return False, error_msg, "error"
+
+    else:
+        # PDF_VIEWER not set - return extracted markdown text for paging
+        # Check if extracted text exists
+        extracted_filename = f"{paper_id}.md"
+        extracted_path = os.path.join(file_locations.extracted_paper_text_dir, extracted_filename)
+
+        if not os.path.exists(extracted_path):
+            error_msg = f"open failed: Extracted text not found for paper {paper_id} at {extracted_path}"
+            return False, error_msg, "error"
+
+        # Read the extracted markdown content
+        try:
+            with open(extracted_path, 'r', encoding='utf-8') as f:
+                markdown_content = f.read()
+
+            return True, markdown_content, "markdown"
+
+        except Exception as e:
+            error_msg = f"open failed: Could not read extracted text for paper {paper_id}. Error: {str(e)}"
+            return False, error_msg, "error"
 
 
 def edit_notes_for_paper(paper_id: str, file_locations: FileLocations) -> Tuple[bool, str]:

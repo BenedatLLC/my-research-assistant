@@ -174,31 +174,31 @@ def test_print_store_validation_with_papers(mock_validate_store, temp_file_locat
     mock_validate_store.assert_called_once_with(temp_file_locations)
 
 
-@patch('my_research_assistant.validate_store._get_or_initialize_index')
-def test_count_chunks_for_paper_with_results(mock_get_index, temp_file_locations):
+def test_count_chunks_for_paper_with_results(temp_file_locations):
     """Test counting chunks when paper exists in index."""
-    # Mock the index and retriever
-    mock_index = MagicMock()
-    mock_retriever = MagicMock()
-    mock_index.as_retriever.return_value = mock_retriever
+    # Mock the collection
+    mock_collection = MagicMock()
+    mock_collection.get.return_value = {
+        'metadatas': [
+            {'paper_id': '2503.22738v1'},
+            {'paper_id': '2503.22738v1'},
+            {'paper_id': 'different_paper'}
+        ]
+    }
 
-    # Create mock results with matching paper_id
-    mock_result1 = MagicMock()
-    mock_result1.metadata = {'paper_id': '2503.22738v1'}
-    mock_result2 = MagicMock()
-    mock_result2.metadata = {'paper_id': '2503.22738v1'}
-    mock_result3 = MagicMock()
-    mock_result3.metadata = {'paper_id': 'different_paper'}
+    # Mock the client
+    mock_client = MagicMock()
+    mock_client.get_collection.return_value = mock_collection
 
-    mock_retriever.retrieve.return_value = [mock_result1, mock_result2, mock_result3]
-    mock_get_index.return_value = mock_index
+    # Mock chromadb.PersistentClient where it's imported (inside the function)
+    with patch('chromadb.PersistentClient', return_value=mock_client):
+        # Mock os.path.exists to return True for the db path
+        with patch('my_research_assistant.validate_store.os.path.exists', return_value=True):
+            from my_research_assistant.validate_store import _count_chunks_for_paper
 
-    from my_research_assistant.validate_store import _count_chunks_for_paper
+            count = _count_chunks_for_paper("2503.22738v1", "content", temp_file_locations)
 
-    count = _count_chunks_for_paper("2503.22738v1", "content", temp_file_locations)
-
-    assert count == 2  # Only results 1 and 2 match the paper_id
-    mock_get_index.assert_called_once_with(temp_file_locations, "content")
+            assert count == 2  # Only results 1 and 2 match the paper_id
 
 
 @patch('my_research_assistant.validate_store._get_or_initialize_index')

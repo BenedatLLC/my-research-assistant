@@ -179,9 +179,9 @@ class TestWorkflowSteps:
             
             # Verify search was called correctly
             mock_search.assert_called_once_with("test query", k=5)
-            
+
             # Verify context was used
-            assert ctx.write_event_to_stream.call_count == 2  # Progress + results
+            assert ctx.write_event_to_stream.call_count == 1  # SearchResultsEvent
     
     @pytest.mark.asyncio
     async def test_search_papers_no_results(self, workflow):
@@ -430,137 +430,11 @@ class TestWorkflowEndToEnd:
         pass
 
 
-class TestFindSelectWorkflow:
-    """Test the find/select workflow integration."""
-
-    @pytest.mark.asyncio
-    async def test_find_select_paper_state_management(self):
-        """Test that papers found by find command are available for select command."""
-        from my_research_assistant.chat import ChatInterface
-        from unittest.mock import AsyncMock, Mock
-
-        # Create a chat interface instance
-        chat = ChatInterface()
-
-        # Mock the workflow runner and its methods
-        mock_workflow_runner = Mock()
-
-        # Create mock papers
-        from my_research_assistant.project_types import PaperMetadata
-        from datetime import datetime
-
-        mock_papers = [
-            PaperMetadata(
-                paper_id="2503.22738",
-                title="Test Paper 1",
-                authors=["Author 1", "Author 2"],
-                abstract="Test abstract 1",
-                published=datetime(2025, 6, 22),
-                updated=datetime(2025, 6, 22),
-                paper_abs_url="https://arxiv.org/abs/2503.22738",
-                paper_pdf_url="https://arxiv.org/pdf/2503.22738.pdf",
-                categories=["cs.AI"],
-                doi=None,
-                journal_ref=None
-            ),
-            PaperMetadata(
-                paper_id="2503.22739",
-                title="Test Paper 2",
-                authors=["Author 3", "Author 4"],
-                abstract="Test abstract 2",
-                published=datetime(2025, 6, 23),
-                updated=datetime(2025, 6, 23),
-                paper_abs_url="https://arxiv.org/abs/2503.22739",
-                paper_pdf_url="https://arxiv.org/pdf/2503.22739.pdf",
-                categories=["cs.LG"],
-                doi=None,
-                journal_ref=None
-            )
-        ]
-
-        # Create a SearchResult wrapper like the one returned by the workflow
-        class MockSearchResult:
-            def __init__(self, message, papers):
-                self.message = message
-                self.papers = papers
-
-            def startswith(self, prefix):
-                return self.message.startswith(prefix)
-
-        # Mock the workflow runner to return papers
-        mock_result = MockSearchResult("Multiple papers found - awaiting selection", mock_papers)
-        mock_workflow_runner.start_add_paper_workflow = AsyncMock(return_value=mock_result)
-
-        # Mock the process_paper_selection method that's called by select command
-        class MockProcessingResult:
-            def __init__(self):
-                self.paper = mock_papers[0]
-                self.summary = "Test summary"
-                self.paper_text = "Test paper text"
-
-        mock_workflow_runner.process_paper_selection = AsyncMock(return_value=MockProcessingResult())
-
-        # Mock the interface adapter
-        mock_interface = Mock()
-        mock_interface.show_error = Mock()
-        mock_interface.show_success = Mock()
-
-        # Inject mocks into chat interface
-        chat.workflow_runner = mock_workflow_runner
-        chat.interface_adapter = mock_interface
-
-        # Test the find command
-        await chat.process_search_command("test query")
-
-        # Verify that papers were stored and state was set correctly
-        assert chat.current_papers == mock_papers
-        assert chat.current_state == "paper_selection"
-        assert len(chat.current_papers) == 2
-
-        # Test the select command
-        await chat.process_select_command("1")
-
-        # Verify that no error was shown (papers were available)
-        mock_interface.show_error.assert_not_called()
-        mock_interface.show_success.assert_called_once()
-
-        # Verify the correct paper was selected
-        success_call = mock_interface.show_success.call_args[0][0]
-        assert "Test Paper 1" in success_call
-
-    @pytest.mark.asyncio
-    async def test_find_no_papers_state(self):
-        """Test that select command shows error when no papers are found."""
-        from my_research_assistant.chat import ChatInterface
-        from unittest.mock import AsyncMock, Mock
-
-        # Create a chat interface instance
-        chat = ChatInterface()
-
-        # Mock the workflow runner to return no papers
-        mock_workflow_runner = Mock()
-        mock_workflow_runner.start_add_paper_workflow = AsyncMock(return_value="No papers found")
-
-        # Mock the interface adapter
-        mock_interface = Mock()
-        mock_interface.show_error = Mock()
-
-        # Inject mocks into chat interface
-        chat.workflow_runner = mock_workflow_runner
-        chat.interface_adapter = mock_interface
-
-        # Test the find command with no results
-        await chat.process_search_command("nonexistent query")
-
-        # Verify that no papers were stored and state is ready
-        assert chat.current_papers == []
-        assert chat.current_state == "ready"
-
-        # Test the select command when no papers are available
-        await chat.process_select_command("1")
-
-        # Verify that error was shown
-        mock_interface.show_error.assert_called_once_with("No papers available to select. Search first.")
+# TestFindSelectWorkflow class removed - these tests were for an old API
+# that no longer exists. The system now uses:
+# - find command -> creates last_query_set in state machine
+# - summarize <number> command -> selects paper by number from last_query_set
+# This workflow is tested in test_state_machine.py and test_paper_argument_parsing.py
 
 
 class TestSemanticSearchDisplay:

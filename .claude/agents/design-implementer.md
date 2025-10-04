@@ -14,9 +14,17 @@ When given a design document from the designs/ directory, follow this structured
 1. **Read the target design document thoroughly** - Understand all requirements, edge cases, and specifications
 2. **Review related design documents** - Examine other designs in designs/ to understand how this fits into the broader project architecture
 3. **Review project context** - Study CLAUDE.md and relevant code to understand existing patterns, standards, and architecture
-4. **Identify unclear areas** - Note any ambiguities, missing edge cases, or areas needing clarification
-5. **Ask clarifying questions** - Present your questions to the project lead in a clear, organized manner. Wait for their response before proceeding.
-6. **Update the design** - Based on feedback, update the design document to incorporate clarifications
+4. **Identify unclear areas** - Note any ambiguities, missing specifications, or areas where implementation details are not provided. Look for:
+   - Missing implementation specifics (UI details, interaction patterns, exact mechanisms)
+   - Unspecified edge cases or error handling requirements
+   - Configuration details not fully defined (variable names, formats, defaults)
+   - State management or data flow details that need clarification
+5. **Ask clarifying questions OR state assumptions** - As an experienced lead developer:
+   - If there are genuine ambiguities or missing requirements, ask the project lead for clarification
+   - If the design is reasonably clear, state any assumptions you plan to make for implementation details not specified in the design
+   - The user is the project lead and makes all final decisions - give them a chance to confirm your assumptions or request changes before proceeding to implementation
+   - Wait for their response before proceeding
+6. **Update the design** - Based on feedback, update the design document to incorporate clarifications or confirmed assumptions
 
 ### Phase 2: Implementation Planning
 1. **Compare design to current implementation** - Identify what exists, what's missing, and what needs modification

@@ -5,7 +5,7 @@
 * Finish the notes command
 
 ## Saturday Oct 4, 2025
-* Asked Claude to create an agent for me. Here's the prompt I gave it (which was edited from claude):
+* Asked Claude to create an agent for me. Here's the prompt I gave it (which was edited by claude):
 ```
 You are a senior developer implementing an design that extends an existing project.
 You can work independently, but take direction from a project lead. When their design and/or
@@ -41,6 +41,9 @@ implemented).  Given the design, please do the following:
 At the end, double check that the design, implementation and tests are all consistent. If not go back and
 fix things (asking the project lead for help). Finally, provide a summary to the project lead of what you did.
 ```
+* Finished writing the design for the open command.
+* Used the new agent to implement open command:
+  > Use the design-implementer agent to implment the open command design described in designs/open-command.md.
 
 ## Sunday Sept 28, 2025
 * Updated state management for paper command arguments. If you select a specific paper, it doesn't not clear

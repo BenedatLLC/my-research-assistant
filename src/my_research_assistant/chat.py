@@ -867,6 +867,10 @@ Use 'status' for detailed state information.
         """Process an open command to view paper content."""
         from .paper_manager import parse_paper_argument_enhanced
         from .result_storage import open_paper_content
+        from rich.markdown import Markdown
+        from rich.panel import Panel
+        from rich.prompt import Prompt
+        import math
 
         try:
             # Parse paper argument using enhanced function
@@ -880,15 +884,64 @@ Use 'status' for detailed state information.
                 self.interface_adapter.show_error(error_msg)
                 return
 
-            # Open paper content
-            success, content = open_paper_content(paper.paper_id, FILE_LOCATIONS)
+            # Open paper content - now returns (success, content, action_type)
+            success, content, action_type = open_paper_content(paper.paper_id, FILE_LOCATIONS)
+
             if not success:
                 self.interface_adapter.show_error(content)  # content contains error message
                 return
 
-            # Display the content
-            self.render_markdown_response(content)
-            self.add_to_history("assistant", content)
+            # Handle different action types
+            if action_type == "viewer":
+                # PDF viewer was launched - just display success message
+                self.render_markdown_response(content)
+                self.add_to_history("assistant", content)
+
+            elif action_type == "markdown":
+                # PDF_VIEWER not set - display markdown with pagination
+                self.console.print("⚠️ [yellow]WARNING: PDF_VIEWER environment variable is not set, Rendering in terminal[/yellow]\n")
+
+                # Split content into lines for pagination
+                lines = content.split('\n')
+                # Use 80% of terminal height for pagination
+                terminal_height = self.console.height
+                lines_per_page = int(terminal_height * 0.8)
+                total_lines = len(lines)
+                total_pages = math.ceil(total_lines / lines_per_page) if total_lines > 0 else 1
+
+                current_page = 1
+
+                while True:
+                    # Calculate start and end indices for current page
+                    start_idx = (current_page - 1) * lines_per_page
+                    end_idx = min(start_idx + lines_per_page, total_lines)
+                    page_lines = lines[start_idx:end_idx]
+                    page_content = '\n'.join(page_lines)
+
+                    # Display the page in a panel with markdown rendering
+                    panel = Panel(
+                        Markdown(page_content),
+                        title=f"📝 {paper.title if hasattr(paper, 'title') else f'Paper {paper.paper_id}'}",
+                        border_style="green"
+                    )
+                    self.console.print(panel)
+
+                    # Show pagination info
+                    pagination_text = f"\n📄 Page {current_page} of {total_pages}"
+                    self.console.print(pagination_text)
+
+                    if current_page < total_pages:
+                        self.console.print("[dim]Press Enter for next page, or type any other key to exit[/dim]")
+                        user_input = Prompt.ask("", console=self.console, default="")
+                        if user_input != "":
+                            break
+                        current_page += 1
+                    else:
+                        break
+
+                # Add simplified content to history
+                history_content = f"Displayed paper content for {paper.paper_id} ({total_pages} pages)"
+                self.add_to_history("assistant", history_content)
 
             # Update state machine according to design
             self.state_machine.transition_after_open(paper)
