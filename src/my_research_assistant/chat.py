@@ -96,6 +96,7 @@ Welcome to your interactive research assistant! I can help you:
 * `summarize-all` - Generate summaries for all papers without them
 * `rebuild-index` - Rebuild content and summary indexes from all files
 * `reindex-paper <paper_id>` - Reindex a specific paper through all processing steps
+* `remove-paper <paper_id>` - Remove a paper from the store
 * `validate-store` - Show status of all papers in the store
 * `help` - Show this help message
 * `status` - Show current status
@@ -202,6 +203,12 @@ Welcome to your interactive research assistant! I can help you:
             "reindex-paper <id>",
             "Reindex a specific paper through all steps",
             "reindex-paper 2503.22738",
+            "any"
+        )
+        help_table.add_row(
+            "remove-paper <id>",
+            "Remove a paper from the store",
+            "remove-paper 2503.22738v1",
             "any"
         )
         help_table.add_row(
@@ -748,6 +755,89 @@ Use 'status' for detailed state information.
         except Exception as e:
             self.interface_adapter.show_error(f"Reindex paper failed: {str(e)}")
 
+    async def process_remove_paper_command(self, paper_ref: str):
+        """Process a remove-paper command to delete a paper from the store."""
+        from .paper_manager import parse_paper_argument_enhanced
+        from .paper_removal import remove_paper, find_matching_papers
+
+        try:
+            # First, check for ambiguous references without version numbers
+            # This is a special case for remove-paper where we must be explicit
+            matching_papers = find_matching_papers(paper_ref, FILE_LOCATIONS)
+
+            if len(matching_papers) > 1:
+                versions_str = " and ".join(matching_papers)
+                self.interface_adapter.show_error(
+                    f"Ambiguous removal request: there are multiple versions of that paper in the store: {versions_str}\n"
+                    f"Skipping removal."
+                )
+                return
+            elif len(matching_papers) == 0:
+                self.interface_adapter.show_error(f"Paper {paper_ref} not found in the store.")
+                return
+
+            # Use the exact paper ID
+            exact_paper_id = matching_papers[0]
+
+            # Parse paper argument using enhanced function to get full metadata
+            paper, error_msg, was_resolved_by_integer = parse_paper_argument_enhanced(
+                "remove-paper",
+                exact_paper_id,
+                self.state_machine.state_vars.last_query_set,
+                FILE_LOCATIONS
+            )
+            if not paper:
+                self.interface_adapter.show_error(error_msg)
+                return
+
+            # Define confirmation callbacks that use console input
+            def confirm_removal(paper_metadata):
+                self.console.print(f"🗑️ Removing paper {paper_metadata.paper_id}")
+                self.console.print(f"   title:     {paper_metadata.title}")
+                self.console.print(f"   published: {paper_metadata.published.strftime('%Y-%m-%d')}")
+                self.console.print("⚠️ This will delete all indexes from PDFs, extracted content, summaries, and notes.")
+                response = input("Are you sure you want to continue? [y/n]: ").strip().lower()
+                return response == 'y'
+
+            def confirm_notes_removal(notes_path):
+                response = input(f"Are you sure you want to delete the notes file '{notes_path}' [y/n]: ").strip().lower()
+                return response == 'y'
+
+            # Run the removal operation
+            success, message = remove_paper(
+                paper.paper_id,
+                FILE_LOCATIONS,
+                confirm_callback=confirm_removal,
+                notes_confirm_callback=confirm_notes_removal
+            )
+
+            if not success:
+                self.interface_adapter.show_error(message)
+                return
+
+            # Display the results
+            self.console.print(message)
+
+            # Update state variables per design
+            # Remove from last_query_set if present
+            if paper.paper_id in self.state_machine.state_vars.last_query_set:
+                self.state_machine.state_vars.last_query_set.remove(paper.paper_id)
+                # Re-sort to maintain consistency
+                self.state_machine.state_vars.last_query_set = sorted(self.state_machine.state_vars.last_query_set)
+
+            # Clear selected_paper if it matches
+            if (self.state_machine.state_vars.selected_paper and
+                self.state_machine.state_vars.selected_paper.paper_id == paper.paper_id):
+                self.state_machine.state_vars.selected_paper = None
+
+            # Add to history
+            self.add_to_history("assistant", f"remove-paper {paper.paper_id} completed successfully")
+
+            # No state transition - stay in current state per design
+
+        except Exception as e:
+            self.interface_adapter.show_error(f"Remove paper failed: {str(e)}")
+
     async def process_summarize_command(self, reference: str):
         """Process a summarize command for the new state machine workflow."""
         from .paper_manager import parse_paper_argument_enhanced
@@ -1137,7 +1227,7 @@ The content has been saved to your results directory and can be referenced later
                 cmd_arg = cmd_parts[1] if len(cmd_parts) > 1 else ""
 
                 # Check if command is valid in current state (skip global commands)
-                global_commands = ["help", "status", "history", "clear", "quit", "exit", "rebuild-index", "summarize-all", "validate-store"]
+                global_commands = ["help", "status", "history", "clear", "quit", "exit", "rebuild-index", "summarize-all", "validate-store", "remove-paper", "reindex-paper"]
 
                 # Get all valid command names (including global ones)
                 all_valid_commands = set(global_commands)
@@ -1193,6 +1283,11 @@ The content has been saved to your results directory and can be referenced later
                         await self.process_reindex_paper_command(cmd_arg)
                     else:
                         self.console.print("❌ [red]Please provide a paper ID[/red]")
+                elif cmd_name == 'remove-paper':
+                    if cmd_arg:
+                        await self.process_remove_paper_command(cmd_arg)
+                    else:
+                        self.console.print("❌ [red]Please provide a paper number or ID[/red]")
 
                 # Handle workflow commands
                 elif cmd_name == 'find':

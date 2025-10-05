@@ -382,6 +382,10 @@ def parse_paper_argument_enhanced(
     if len(argument.split()) > 1:
         return None, f"❌ {command_name} failed: Please provide exactly one paper number or ID", False
 
+    # Commands that will download the paper (don't require PDF to exist)
+    download_commands = {"summarize"}
+    require_pdf = command_name not in download_commands
+
     # Try parsing as integer first (1-indexed reference to last_query_set)
     try:
         paper_num = int(argument)
@@ -394,10 +398,11 @@ def parse_paper_argument_enhanced(
                 paper = get_paper_metadata(paper_id.split('v')[0], file_locations)
                 if paper:
                     paper.paper_id = paper_id
-                    # Verify PDF exists
-                    pdf_path = paper.get_local_pdf_path(file_locations)
-                    if not os.path.exists(pdf_path):
-                        return None, f"❌ {command_name} failed: Paper {paper_id} PDF not found at {pdf_path}", False
+                    # Verify PDF exists (only for commands that require it)
+                    if require_pdf:
+                        pdf_path = paper.get_local_pdf_path(file_locations)
+                        if not os.path.exists(pdf_path):
+                            return None, f"❌ {command_name} failed: Paper {paper_id} PDF not found at {pdf_path}", False
                     return paper, "", True  # True = resolved by integer
                 else:
                     return None, f"❌ {command_name} failed: Could not load metadata for paper {paper_id}", False
@@ -437,10 +442,11 @@ def parse_paper_argument_enhanced(
         paper = get_paper_metadata(base_id, file_locations)
         if paper:
             paper.paper_id = paper_id
-            # Verify PDF exists
-            pdf_path = paper.get_local_pdf_path(file_locations)
-            if not os.path.exists(pdf_path):
-                return None, f"❌ {command_name} failed: Paper {paper_id} has not been downloaded. PDF not found at {pdf_path}", False
+            # Verify PDF exists (only for commands that require it)
+            if require_pdf:
+                pdf_path = paper.get_local_pdf_path(file_locations)
+                if not os.path.exists(pdf_path):
+                    return None, f"❌ {command_name} failed: Paper {paper_id} has not been downloaded. PDF not found at {pdf_path}", False
             return paper, "", False  # False = resolved by ArXiv ID
         else:
             return None, f"❌ {command_name} failed: Could not load metadata for paper {paper_id}", False

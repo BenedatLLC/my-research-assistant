@@ -372,6 +372,61 @@ class TestParsePaperArgumentEnhanced:
         assert "not a valid paper number or ArXiv ID" in error
         assert was_resolved_by_integer is False
 
+    @patch('my_research_assistant.arxiv_downloader.get_paper_metadata')
+    def test_summarize_command_does_not_require_pdf(self, mock_get_metadata):
+        """Test that summarize command works on papers without downloaded PDFs.
+
+        This is a regression test for the bug where summarize failed on papers
+        from find results because it checked for PDF existence. The summarize
+        command should download the paper, so PDF check should be skipped.
+        """
+        mock_paper = MagicMock()
+        mock_paper.paper_id = "2509.12345v1"
+        # PDF path points to non-existent file
+        mock_paper.get_local_pdf_path.return_value = os.path.join(self.pdfs_dir, "2509.12345v1.pdf")
+        mock_get_metadata.return_value = mock_paper
+
+        last_query_set = ["2509.12345v1", "2210.12345v1"]
+
+        # Test with summarize command - should succeed even though PDF doesn't exist
+        paper, error, was_resolved_by_integer = parse_paper_argument_enhanced(
+            "summarize", "1", last_query_set, self.file_locations
+        )
+
+        assert paper is not None, f"Expected paper object, got error: {error}"
+        assert error == ""
+        assert was_resolved_by_integer is True
+        assert paper.paper_id == "2509.12345v1"
+
+    @patch('my_research_assistant.arxiv_downloader.get_paper_metadata')
+    def test_other_commands_require_pdf(self, mock_get_metadata):
+        """Test that commands other than summarize still require PDF to exist."""
+        mock_paper = MagicMock()
+        mock_paper.paper_id = "2509.12345v1"
+        # PDF path points to non-existent file
+        mock_paper.get_local_pdf_path.return_value = os.path.join(self.pdfs_dir, "2509.12345v1.pdf")
+        mock_get_metadata.return_value = mock_paper
+
+        last_query_set = ["2509.12345v1", "2210.12345v1"]
+
+        # Test with summary command - should fail because PDF doesn't exist
+        paper, error, was_resolved_by_integer = parse_paper_argument_enhanced(
+            "summary", "1", last_query_set, self.file_locations
+        )
+
+        assert paper is None
+        assert "PDF not found" in error
+        assert was_resolved_by_integer is False
+
+        # Test with open command - should also fail
+        paper, error, was_resolved_by_integer = parse_paper_argument_enhanced(
+            "open", "1", last_query_set, self.file_locations
+        )
+
+        assert paper is None
+        assert "PDF not found" in error
+        assert was_resolved_by_integer is False
+
 
 class TestStateVariableEnhancements:
     """Test the enhanced state variable functionality."""

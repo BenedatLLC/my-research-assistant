@@ -1,7 +1,6 @@
 # Development log
 
 ## TODO
-* Implement the open command
 * Finish the notes command
 
 ## Saturday Oct 4, 2025
@@ -44,6 +43,13 @@ fix things (asking the project lead for help). Finally, provide a summary to the
 * Finished writing the design for the open command.
 * Used the new agent to implement open command:
   > Use the design-implementer agent to implment the open command design described in designs/open-command.md.
+* Wrote the design for the remove-paper command
+* Used the agent to implement the command:
+  > Can you use the design-implementer subagent to implement the design at designs/remove-paper-command.md?
+* Ran into bug where a `summarize` after `find` using paper numbers was processing the wrong paper. This was
+  because the find command returned results in order of relevance, but the internal store was sorting by
+  paper id (per the design). Claude had trouble fixing this (kept getting connection errors), so went and
+  used CoPilot. CoPilot was able to successfully fix the issue, but got stuck running unit tests.
 
 ## Sunday Sept 28, 2025
 * Updated state management for paper command arguments. If you select a specific paper, it doesn't not clear

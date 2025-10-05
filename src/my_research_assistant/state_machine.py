@@ -93,7 +93,7 @@ class StateMachine:
     def get_valid_commands(self) -> List[str]:
         """Get list of valid commands for the current state."""
         # Global commands that work in any state
-        global_commands = ["rebuild-index", "reindex-paper <paper_id>", "summarize-all", "validate-store", "help", "status", "history", "clear", "quit", "exit"]
+        global_commands = ["rebuild-index", "reindex-paper <paper_id>", "summarize-all", "validate-store", "remove-paper <number|id>", "help", "status", "history", "clear", "quit", "exit"]
 
         # State-specific commands based on the design document
         state_commands = {

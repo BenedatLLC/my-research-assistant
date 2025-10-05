@@ -47,6 +47,7 @@ The workflow system is designed to work with multiple interface types:
 
 from pydantic import Field
 from typing import List, Optional
+import os
 from dataclasses import dataclass
 from llama_index.core.workflow import (
     Event,
@@ -219,7 +220,14 @@ class ResearchAssistantWorkflow(Workflow):
                 self.interface.show_error(f"No papers found matching '{query}'. Please try a different search term.")
                 return StopEvent(result="No papers found")
             
-            # Display papers using the interface adapter
+            # IMPORTANT ORDERING FIX:
+            # The chat state machine stores last_query_set as a list of paper_ids sorted ascending.
+            # Previously, we displayed papers in relevance (similarity) order while storing
+            # sorted IDs, causing numbering mismatches (e.g., 'summarize 1' acted on a different paper).
+            # To ensure numeric references map correctly, we now sort the PaperMetadata objects
+            # themselves by paper_id ascending before display so the UI numbering matches the
+            # internal state ordering.
+            papers.sort(key=lambda p: p.paper_id)
             self.interface.display_papers(papers)
             
             ctx.write_event_to_stream(
@@ -535,7 +543,7 @@ class WorkflowRunner:
             )
 
             if not results:
-                return f"""❌ **No relevant passages found**
+                no_results_message = f"""❌ **No relevant passages found**
 
 I couldn't find any passages in the indexed papers that are relevant to your query: "{query}"
 
@@ -548,6 +556,13 @@ I couldn't find any passages in the indexed papers that are relevant to your que
 - Use the `list` command to see what papers are available
 - Try broader search terms
 - Use the `find` command to search for and download more papers on this topic"""
+                return QueryResult(
+                    success=False,
+                    papers=[],
+                    paper_ids=[],
+                    message="No relevant passages found",
+                    content=no_results_message
+                )
 
             print(f"✅ Found {len(results)} relevant chunks from {len(set(r.paper_id for r in results))} paper(s)")
 
@@ -635,7 +650,13 @@ Provide your answer in a clear, well-structured format. Be specific about what t
                     for i, (paper_id, paper_data) in enumerate(papers_dict.items(), 1):
                         final_response += f"{i}. {paper_data['title']} (ID: {paper_id})\n"
 
-                return final_response
+                return QueryResult(
+                    success=False,
+                    papers=[],
+                    paper_ids=list(papers_dict.keys()),
+                    message="Insufficient information to answer",
+                    content=final_response
+                )
 
             # Create final response with answer and numbered paper references
             final_response = f"# Answer: {query}\n\n"
