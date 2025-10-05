@@ -92,6 +92,7 @@ Welcome to your interactive research assistant! I can help you:
 ## Commands:
 * `find <query>` - Find papers on ArXiv to download
 * `sem-search <query>` - Search your indexed papers semantically
+* `research <query>` - Deep research with hierarchical RAG and citations
 * `list` - Show all downloaded papers (with pagination)
 * `summarize-all` - Generate summaries for all papers without them
 * `rebuild-index` - Rebuild content and summary indexes from all files
@@ -167,8 +168,8 @@ Welcome to your interactive research assistant! I can help you:
         )
         help_table.add_row(
             "research <query>",
-            "Deep research on indexed papers",
-            "research transformer models",
+            "Deep research using hierarchical RAG with citations",
+            "research transformer architectures",
             "any"
         )
 
@@ -1160,9 +1161,10 @@ The content has been saved to your results directory and can be referenced later
             self.interface_adapter.show_error(f"Improve failed: {str(e)}")
 
     async def process_research_command(self, query: str):
-        """Process a research command using the workflow system."""
+        """Process a research command using hierarchical RAG workflow."""
         try:
-            result = await self.workflow_runner.start_semantic_search_workflow(query)
+            # Use the research_query method for deep research
+            result = await self.workflow_runner.research_query(query)
 
             # Handle the new QueryResult format
             if hasattr(result, 'success'):

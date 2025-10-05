@@ -753,13 +753,15 @@ def search_index(query:str, k:int=5, file_locations:FileLocations=FILE_LOCATIONS
     return results
 
 
-def search_summary_index(query:str, k:int=5, file_locations:FileLocations=FILE_LOCATIONS) \
+def search_summary_index(query:str, k:int=5, file_locations:FileLocations=FILE_LOCATIONS,
+                         use_mmr:bool=False, similarity_cutoff:float=0.0) \
     -> list[SearchResult]:
     """
     Search the summary index for papers matching the query.
 
     This function searches through the summary index (summaries and notes) for chunks matching
-    the query and returns structured SearchResult objects.
+    the query and returns structured SearchResult objects. Supports MMR for diverse results
+    and similarity filtering for higher quality matches.
 
     Parameters
     ----------
@@ -769,6 +771,10 @@ def search_summary_index(query:str, k:int=5, file_locations:FileLocations=FILE_L
         Maximum number of results to return (default: 5)
     file_locations : FileLocations, optional
         File locations configuration
+    use_mmr : bool, optional
+        Whether to use Maximum Marginal Relevance for diverse results (default: False)
+    similarity_cutoff : float, optional
+        Minimum similarity score threshold for filtering results (default: 0.0, no filtering)
 
     Returns
     -------
@@ -796,20 +802,44 @@ def search_summary_index(query:str, k:int=5, file_locations:FileLocations=FILE_L
             raise IndexError(f"No existing ChromaDB found at expected location. {e}")
         except Exception as e:
             raise IndexError(f"Error loading summary index: {e}")
-    
-    # Run the query
-    retriever = summary_index.as_retriever(similarity_top_k=k)
-    chunks = retriever.retrieve(query)
+
+    # Configure retriever with enhanced options
+    from llama_index.core.vector_stores.types import VectorStoreQueryMode
+    from llama_index.core.postprocessor import SimilarityPostprocessor
+
+    if use_mmr:
+        try:
+            # Use MMR for diverse results across different papers
+            retriever = summary_index.as_retriever(
+                similarity_top_k=k,
+                vector_store_query_mode=VectorStoreQueryMode.MMR
+            )
+            chunks = retriever.retrieve(query)
+        except Exception:
+            # Fallback to default retrieval if MMR fails
+            print("MMR mode not supported, using default retrieval...")
+            retriever = summary_index.as_retriever(similarity_top_k=k)
+            chunks = retriever.retrieve(query)
+    else:
+        # Use default retrieval
+        retriever = summary_index.as_retriever(similarity_top_k=k)
+        chunks = retriever.retrieve(query)
+
+    # Apply similarity filtering if cutoff is specified
+    if similarity_cutoff > 0:
+        postprocessor = SimilarityPostprocessor(similarity_cutoff=similarity_cutoff)
+        chunks = postprocessor.postprocess_nodes(chunks)
+
     results = []
     for chunk in chunks:
         try:
             paper_id = chunk.metadata['paper_id']
             summary_filename = paper_id + '.md'
-            
+
             # For summary index results, we don't have page numbers
             # Instead, we use the source type to indicate what was matched
             source_type = chunk.metadata.get('source_type', 'summary')
-            
+
             results.append(SearchResult(
                 paper_id=paper_id,
                 pdf_filename = f"{paper_id}.pdf",  # Construct PDF filename
@@ -825,6 +855,118 @@ def search_summary_index(query:str, k:int=5, file_locations:FileLocations=FILE_L
             raise RetrievalError(f"Got an error processing chunk with metadata {chunk.metadata}") from e
     return results
 
+
+def search_content_index_filtered(query: str, paper_ids: list[str], k: int = 5,
+                                   file_locations: FileLocations = FILE_LOCATIONS,
+                                   similarity_cutoff: float = 0.0) -> list[SearchResult]:
+    """
+    Search the content index with filtering to specific papers.
+
+    This function searches through the content index but only returns results from the
+    specified paper IDs. This is useful for research workflows that first identify
+    relevant papers and then want to search within those papers for specific details.
+
+    Parameters
+    ----------
+    query : str
+        The search query
+    paper_ids : list[str]
+        List of paper IDs to restrict search to
+    k : int, optional
+        Maximum number of results to return (default: 5)
+    file_locations : FileLocations, optional
+        File locations configuration
+    similarity_cutoff : float, optional
+        Minimum similarity score threshold for filtering results (default: 0.0, no filtering)
+
+    Returns
+    -------
+    list[SearchResult]
+        List of search results from the content index, filtered to specified papers
+
+    Raises
+    ------
+    IndexError
+        If the content index cannot be loaded or does not exist
+    RetrievalError
+        If there's an error processing search results
+    """
+    # Get the content index - use global if available, otherwise try to load existing
+    global CONTENT_INDEX
+
+    if CONTENT_INDEX is not None:
+        content_index = CONTENT_INDEX
+    else:
+        # For search operations, we require an existing database rather than creating a new one
+        try:
+            content_index = _load_existing_chroma_vector_store(file_locations, "content")
+            CONTENT_INDEX = content_index  # Cache it for future use
+        except IndexError as e:
+            raise IndexError(f"No existing ChromaDB found at expected location. {e}")
+        except Exception as e:
+            raise IndexError(f"Error loading content index: {e}")
+
+    # Configure retriever with metadata filtering
+    from llama_index.core.vector_stores.types import MetadataFilters, MetadataFilter, FilterOperator
+    from llama_index.core.postprocessor import SimilarityPostprocessor
+
+    # Create metadata filter for paper IDs
+    # ChromaDB uses "in" operator for filtering multiple values
+    filters = MetadataFilters(
+        filters=[
+            MetadataFilter(
+                key="paper_id",
+                value=paper_ids,
+                operator=FilterOperator.IN
+            )
+        ]
+    )
+
+    # Create retriever with filters
+    # Request more results than k to account for filtering and similarity cutoff
+    retriever = content_index.as_retriever(
+        similarity_top_k=k * 3,  # Request 3x to ensure we have enough after filtering
+        filters=filters
+    )
+
+    # Run the query
+    try:
+        chunks = retriever.retrieve(query)
+    except Exception as e:
+        # If metadata filtering fails, fall back to manual filtering
+        print(f"Metadata filtering failed ({e}), using manual filtering...")
+        retriever = content_index.as_retriever(similarity_top_k=k * 10)
+        all_chunks = retriever.retrieve(query)
+        chunks = [chunk for chunk in all_chunks
+                  if chunk.metadata.get('paper_id') in paper_ids]
+
+    # Apply similarity filtering if cutoff is specified
+    if similarity_cutoff > 0:
+        postprocessor = SimilarityPostprocessor(similarity_cutoff=similarity_cutoff)
+        chunks = postprocessor.postprocess_nodes(chunks)
+
+    # Limit to k results
+    chunks = chunks[:k]
+
+    results = []
+    for chunk in chunks:
+        try:
+            paper_id = chunk.metadata['paper_id']
+            summary_filename = paper_id + '.md'
+            results.append(SearchResult(
+                paper_id=paper_id,
+                pdf_filename=chunk.metadata['file_name'],
+                summary_filename=summary_filename
+                                   if exists(join(file_locations.summaries_dir,
+                                             summary_filename))
+                                   else None,
+                paper_title=chunk.metadata['title'],
+                page=int(chunk.metadata['page_label']),
+                chunk=chunk.text
+            ))
+        except Exception as e:
+            raise RetrievalError(f"Got an error processing chunk with metadata {chunk.metadata}") from e
+    return results
 
 
 def rebuild_index(file_locations:FileLocations=FILE_LOCATIONS):

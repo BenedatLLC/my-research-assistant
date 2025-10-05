@@ -3,6 +3,16 @@
 ## TODO
 * Finish the notes command
 
+## Sunday Oct 5, 2025
+* Wrote design for research command based on an initial prompt from Gemini
+* Asked Claude to update the design, using the following prompt:
+  > Can you review the design for the research command in designs/research-command.md? Is everything clear?
+  > Are there more details that you need? Is it consistent with the other designs and current implementations?
+* Implementation via:
+  > Can you use the design-implementer subagent to implment the updated design at designs/research-command.md?
+  Claude seemed to think that *it* was the Project Lead, not the user. It approved its own assumptions and I had
+  to prompt it to continue.
+
 ## Saturday Oct 4, 2025
 * Asked Claude to create an agent for me. Here's the prompt I gave it (which was edited by claude):
 ```

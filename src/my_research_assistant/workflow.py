@@ -952,6 +952,191 @@ Please provide an improved version that addresses the feedback while maintaining
                 content=f"❌ **Error listing papers**: {str(e)}"
             )
 
+    async def research_query(self, query: str, num_summary_papers: int = 5, num_detail_chunks: int = 10) -> QueryResult:
+        """
+        Perform deep research query using two-stage approach.
+
+        Stage 1: Search summary index to identify relevant papers
+        Stage 2: Search content index within those papers for specific details
+        Stage 3: Synthesize findings into comprehensive research answer
+
+        Args:
+            query: Research question to answer
+            num_summary_papers: Number of papers to identify from summary search (default: 5)
+            num_detail_chunks: Number of detailed chunks to retrieve from papers (default: 10)
+
+        Returns:
+            QueryResult with synthesized research findings and paper references
+        """
+        try:
+            from .vector_store import search_summary_index, search_content_index_filtered
+            from .paper_manager import format_research_result, get_papers_by_ids
+
+            print(f"🔬 Starting research query: '{query}'...")
+
+            # Stage 1: Search summary index to identify relevant papers
+            print(f"📚 Stage 1: Searching summaries and notes to identify relevant papers...")
+            summary_results = search_summary_index(
+                query,
+                k=num_summary_papers,
+                file_locations=self.workflow.file_locations,
+                use_mmr=True,  # Diverse papers
+                similarity_cutoff=0.5  # Moderate threshold
+            )
+
+            if not summary_results:
+                no_results_message = f"""❌ **No relevant papers found for research query**
+
+**Your Question:** {query}
+
+**Analysis:** No papers in the summary index were found to be relevant to this research question.
+
+**Possible reasons:**
+- No papers have been summarized yet
+- The query terms don't match any summarized paper topics
+- Try rephrasing your query with different keywords
+
+**Suggestions:**
+- Use the `list` command to see what papers have been summarized
+- Use the `find` command to search for and download papers on this topic
+- Try broader search terms
+- Use `sem-search` to search the full content index instead"""
+
+                return QueryResult(
+                    success=False,
+                    papers=[],
+                    paper_ids=[],
+                    message="No relevant papers found",
+                    content=no_results_message
+                )
+
+            # Extract unique paper IDs from summary results
+            paper_ids = list(set(result.paper_id for result in summary_results))
+            print(f"✅ Found {len(paper_ids)} relevant papers from summary search")
+
+            # Stage 2: Search content index within identified papers for specific details
+            print(f"🔍 Stage 2: Searching detailed content within {len(paper_ids)} papers...")
+            detail_results = search_content_index_filtered(
+                query,
+                paper_ids=paper_ids,
+                k=num_detail_chunks,
+                file_locations=self.workflow.file_locations,
+                similarity_cutoff=0.5
+            )
+
+            if not detail_results:
+                # Fall back to summary results if no detail chunks found
+                print("⚠️  No detailed chunks found, using summary-level information...")
+                detail_results = summary_results[:num_detail_chunks]
+
+            print(f"✅ Found {len(detail_results)} detailed chunks")
+
+            # Prepare context for synthesis
+            # Group chunks by paper for better organization
+            papers_context = {}
+            for result in detail_results:
+                if result.paper_id not in papers_context:
+                    papers_context[result.paper_id] = {
+                        'title': result.paper_title,
+                        'chunks': []
+                    }
+                papers_context[result.paper_id]['chunks'].append({
+                    'text': result.chunk,
+                    'page': result.page
+                })
+
+            # Format context for the synthesis prompt
+            context_text = ""
+            for paper_id, paper_data in papers_context.items():
+                context_text += f"\n### Paper: {paper_data['title']} (ArXiv ID: {paper_id})\n\n"
+                for i, chunk in enumerate(paper_data['chunks'], 1):
+                    context_text += f"**Excerpt {i}** (Page {chunk['page']}):\n{chunk['text']}\n\n"
+
+            # Stage 3: Synthesize findings using LLM
+            print(f"🤖 Stage 3: Synthesizing research findings...")
+
+            # Load the research synthesis prompt template and substitute variables
+            from .prompt import subst_prompt
+
+            synthesis_prompt = subst_prompt(
+                "research_synthesis_v1",
+                query=query,
+                context=context_text
+            )
+
+            # Generate synthesis
+            synthesis_response = await self.workflow.llm.acomplete(synthesis_prompt)
+            synthesis_text = synthesis_response.text.strip()
+
+            print(f"✅ Research synthesis generated")
+
+            # Load full paper metadata for the papers used
+            papers = get_papers_by_ids(list(papers_context.keys()), self.workflow.file_locations)
+
+            # Format the final research result
+            final_content = format_research_result(query, synthesis_text, papers)
+
+            # Add detailed references section with page numbers
+            final_content += "\n\n## Detailed References\n\n"
+            for paper_id, paper_data in papers_context.items():
+                final_content += f"### {paper_data['title']}\n"
+                final_content += f"- **ArXiv ID**: {paper_id}\n"
+
+                # List all referenced pages
+                pages = sorted(set(chunk['page'] for chunk in paper_data['chunks']))
+                if len(pages) == 1:
+                    final_content += f"- **Referenced Page**: {pages[0]}\n"
+                else:
+                    final_content += f"- **Referenced Pages**: {', '.join(map(str, pages))}\n"
+
+                # Add file paths
+                pdf_path = f"{self.workflow.file_locations.pdfs_dir}/{paper_id}.pdf"
+                summary_path = f"{self.workflow.file_locations.summaries_dir}/{paper_id}.md"
+                final_content += f"- **PDF**: `{pdf_path}`\n"
+                final_content += f"- **Summary**: `{summary_path}`\n\n"
+
+            # Add research statistics
+            final_content += f"---\n\n"
+            final_content += f"*Research details: Analyzed {len(papers)} papers, "
+            final_content += f"synthesized {len(detail_results)} detailed excerpts*\n"
+
+            print(f"✅ Research query completed successfully")
+
+            return QueryResult(
+                success=True,
+                papers=papers,
+                paper_ids=[paper.paper_id for paper in papers],
+                message="Research query completed successfully",
+                content=final_content
+            )
+
+        except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"❌ Research query failed: {str(e)}\n{error_details}")
+
+            error_message = f"""❌ **Research query failed**
+
+**Error:** {str(e)}
+
+**Possible reasons:**
+- Index may not be initialized
+- Papers may not be indexed yet
+- Issue with LLM synthesis
+
+**Suggestions:**
+- Use `validate-store` to check index status
+- Use `rebuild-index` if index is corrupted
+- Try `sem-search` instead for simpler queries"""
+
+            return QueryResult(
+                success=False,
+                papers=[],
+                paper_ids=[],
+                message=f"Research query failed: {str(e)}",
+                content=error_message
+            )
+
     async def continue_workflow(self, user_input: str, current_papers: Optional[List[PaperMetadata]] = None):
         """Continue the workflow based on user input"""
         # This would handle user selections and feedback

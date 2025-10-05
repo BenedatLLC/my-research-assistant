@@ -349,6 +349,62 @@ def parse_paper_argument(
         return None, f"❌ {command_name} failed: Error loading paper {paper_id}: {str(e)}"
 
 
+def format_paper_reference(paper: PaperMetadata, include_title: bool = True) -> str:
+    """Format a paper reference for display in research results.
+
+    Args:
+        paper: Paper metadata object
+        include_title: Whether to include the paper title (default: True)
+
+    Returns:
+        Formatted paper reference string
+    """
+    authors_display = ", ".join(paper.authors[:2])
+    if len(paper.authors) > 2:
+        authors_display += f" et al."
+
+    if include_title:
+        return f"**{paper.title}** ({authors_display}, ArXiv ID: {paper.paper_id})"
+    else:
+        return f"{authors_display}, ArXiv ID: {paper.paper_id}"
+
+
+def format_research_result(query: str, synthesis: str, papers: List[PaperMetadata]) -> str:
+    """Format a research result for display.
+
+    Args:
+        query: The research query
+        synthesis: The synthesized research answer
+        papers: List of papers that contributed to the answer
+
+    Returns:
+        Formatted research result as markdown
+    """
+    lines = [
+        f"# Research Results: {query}",
+        "",
+        synthesis,
+        "",
+        "---",
+        "",
+        "## Papers Analyzed",
+        ""
+    ]
+
+    for i, paper in enumerate(papers, 1):
+        # Show full title and authors for reference section
+        authors_display = ", ".join(paper.authors[:3])
+        if len(paper.authors) > 3:
+            authors_display += f" et al."
+
+        lines.append(f"{i}. **{paper.title}**")
+        lines.append(f"   - Authors: {authors_display}")
+        lines.append(f"   - ArXiv ID: {paper.paper_id}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 def parse_paper_argument_enhanced(
     command_name: str,
     argument: str,

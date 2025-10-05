@@ -53,7 +53,7 @@ The `chat` command launches a rich terminal interface with:
 1. **Find, download, and summarize papers** - Keyword search from ArXiv with user refinement, automated paper processing
 2. **View repository content** - List indexed papers, view individual papers and summaries, open PDFs in viewer
 3. **Semantic search** - Search across papers with summarized answers and page references
-4. **Deep research** - Hierarchical RAG approach: summary search → targeted content retrieval → synthesis with citations (not yet implemented)
+4. **Deep research** - Hierarchical RAG approach: summary search → targeted content retrieval → synthesis with citations
 5. **Repository management** - Re-index, re-summarize, validate store, remove papers, and manage the paper collection
 6. **Personal notes** - Add and edit personal notes for papers
 7. **Content management** - Improve summaries and research results, save results to files
@@ -168,7 +168,7 @@ The system implements a comprehensive state machine with 6 states:
 - **Discovery**: `find <query>`, `list` (available from any state)
 - **Paper Processing**: `summarize <number|id>` (from select-new), `summary <number|id>` (from select-view/sem-search/research)
 - **Content Operations**: `open <number|id>` (view paper content via PDF viewer or terminal), `notes` (edit personal notes)
-- **Search & Research**: `sem-search <query>` (available from any state), `research <query>` (planned: hierarchical RAG with citations)
+- **Search & Research**: `sem-search <query>`, `research <query>` (hierarchical RAG with citations, available from any state)
 - **Workflow Management**: `improve <feedback>`, `save` (context-dependent)
 - **Paper Management**: `remove-paper <number|id>` (remove paper from store, available from any state)
 - **System**: `rebuild-index`, `validate-store`, `summarize-all`, `help`, `status`, `history`, `clear`, `quit`
@@ -216,7 +216,7 @@ The `designs/` directory contains comprehensive design documents:
 - `command-types.md` - Command categorization and usage patterns
 - `open-command.md` - PDF viewer integration and terminal fallback - **implemented**
 - `remove-paper-command.md` - Paper removal from all storage locations - **implemented**
-- `research-command.md` - Hierarchical RAG design for deep research - **not yet implemented**
+- `research-command.md` - Hierarchical RAG design for deep research - **implemented**
 - `validate-command.md` - Store validation command design
 - `file-store.md` - Data storage architecture and paper states
 - `user-stores.md` - High-level user operations and workflows
