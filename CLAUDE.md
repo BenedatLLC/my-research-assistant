@@ -51,10 +51,10 @@ The `chat` command launches a rich terminal interface with:
 
 #### Core User Operations
 1. **Find, download, and summarize papers** - Keyword search from ArXiv with user refinement, automated paper processing
-2. **View repository content** - List indexed papers, view individual papers and summaries
+2. **View repository content** - List indexed papers, view individual papers and summaries, open PDFs in viewer
 3. **Semantic search** - Search across papers with summarized answers and page references
-4. **Deep research** - High-level summary search combined with detailed chunk analysis
-5. **Repository management** - Re-index, re-summarize, validate store, and manage the paper collection
+4. **Deep research** - Hierarchical RAG approach: summary search → targeted content retrieval → synthesis with citations (not yet implemented)
+5. **Repository management** - Re-index, re-summarize, validate store, remove papers, and manage the paper collection
 6. **Personal notes** - Add and edit personal notes for papers
 7. **Content management** - Improve summaries and research results, save results to files
 
@@ -93,8 +93,9 @@ The system is built around a state machine-driven workflow with a pipeline archi
 - **`PromptManager`** (`prompt.py`) - Template-based prompt system with variable substitution from markdown files
 - **Dual Vector Stores** (`vector_store.py`) - Separate ChromaDB instances for content and summary indexes
 - **Model Management** (`models.py`) - Centralized LLM configuration with caching
-- **Paper Management** (`paper_manager.py`) - Utilities for resolving paper references and loading summaries
-- **Result Storage** (`result_storage.py`) - Save and manage search/research results with LLM-generated titles
+- **Paper Management** (`paper_manager.py`) - Utilities for resolving paper references (by number or ArXiv ID) and loading summaries
+- **Paper Removal** (`paper_removal.py`) - Remove papers from all storage locations including vector indexes
+- **Result Storage** (`result_storage.py`) - Save and manage search/research results with LLM-generated titles, open papers in PDF viewer
 - **Store Validation** (`validate_store.py`) - Validate and report on paper storage status across all components
 
 ### Data Storage Structure
@@ -122,6 +123,7 @@ The system uses a template-based prompt architecture with:
 ### Environment Configuration
 - `DOC_HOME` - Required environment variable specifying base directory for all data
 - `DEFAULT_MODEL` - Optional, defaults to 'gpt-4o' for LLM operations
+- `PDF_VIEWER` - Optional, path to PDF viewer executable (e.g., '/usr/bin/open'). If not set, `open` command displays papers in terminal
 
 ### Search & Retrieval Strategy
 The system uses a two-stage approach:
@@ -142,6 +144,9 @@ The system uses a two-stage approach:
 - Comprehensive test coverage:
   - State machine functionality (`test_state_machine.py`) - 30+ tests covering all workflows
   - Chat interface integration (`test_chat.py`) - Command processing and state transitions
+  - Paper argument parsing (`test_paper_argument_parsing.py`) - 24 tests for enhanced parsing logic
+  - Paper removal (`test_paper_removal.py`) - 14 tests for removal from all storage locations
+  - Open command (`test_open_command.py`) - 8 tests for PDF viewer and terminal fallback
   - Workflow orchestration (`test_workflow.py`) - LlamaIndex workflow operations
   - Store validation (`test_validate_store.py`, `test_validate_store_integration.py`)
   - Component testing: summarizer, prompt system, PDF extraction, ArXiv search
@@ -162,9 +167,10 @@ The system implements a comprehensive state machine with 6 states:
 #### Command Set by State
 - **Discovery**: `find <query>`, `list` (available from any state)
 - **Paper Processing**: `summarize <number|id>` (from select-new), `summary <number|id>` (from select-view/sem-search/research)
-- **Content Operations**: `open <number|id>` (view paper content), `notes` (edit personal notes)
-- **Search & Research**: `sem-search <query>`, `research <query>` (available from any state)
+- **Content Operations**: `open <number|id>` (view paper content via PDF viewer or terminal), `notes` (edit personal notes)
+- **Search & Research**: `sem-search <query>` (available from any state), `research <query>` (planned: hierarchical RAG with citations)
 - **Workflow Management**: `improve <feedback>`, `save` (context-dependent)
+- **Paper Management**: `remove-paper <number|id>` (remove paper from store, available from any state)
 - **System**: `rebuild-index`, `validate-store`, `summarize-all`, `help`, `status`, `history`, `clear`, `quit`
 
 #### State Variables
@@ -177,6 +183,9 @@ The system implements a comprehensive state machine with 6 states:
 
 ### Working with Papers
 - Paper IDs can be provided with or without version numbers (e.g., '2503.22738v1' or '2503.22738')
+- Papers can be referenced by integer number (when `last_query_set` exists) or ArXiv ID (from any state)
+- Enhanced paper argument parsing handles version disambiguation and repository-wide lookups
+- Conditional query set preservation: preserved when paper resolved by number, cleared when resolved by ArXiv ID (unless in set)
 - The system handles ArXiv category mapping to human-readable names
 - PDF files are named using ArXiv's default filename convention
 
@@ -203,6 +212,11 @@ The system implements a comprehensive state machine with 6 states:
 ### Design Documentation
 The `designs/` directory contains comprehensive design documents:
 - `workflow-state-machine-and-commands.md` - Complete state machine specification with test flows
+- `command-arguments.md` - Enhanced paper argument parsing (integer numbers vs ArXiv IDs) - **implemented**
+- `command-types.md` - Command categorization and usage patterns
+- `open-command.md` - PDF viewer integration and terminal fallback - **implemented**
+- `remove-paper-command.md` - Paper removal from all storage locations - **implemented**
+- `research-command.md` - Hierarchical RAG design for deep research - **not yet implemented**
 - `validate-command.md` - Store validation command design
 - `file-store.md` - Data storage architecture and paper states
 - `user-stores.md` - High-level user operations and workflows

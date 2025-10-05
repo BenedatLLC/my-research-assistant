@@ -12,15 +12,9 @@ to the agent is a command line shell, using the `rich` python library for format
 3.  [x] Add new results and notes directories to FileLocations
 4.  [x] Make sure indexing functions are idempotent. Also, create a separate index for summaries and notes.
 5.  [x] Update the sem-search command to provide an actual summary of the answer and a list of the papers
-6.  [ ] Refactor the chatbot commands with a state machine to control the workflow
-7.  [ ] Add view summary and open commands (use case 2)
+6.  [x] Refactor the chatbot commands with a state machine to control the workflow
+7.  [x] Add view summary and open commands (use case 2)
 8.  [ ] Implement deep research (use case 4)
 9.  [ ] Add any commands needed to finish use case 5 (maintenance)
 10. [ ] Add intent detection in front of the commands, so that user can just provide natural text queries
 
-## Designs
-The following documents in the `designs` subdirectory provide the intended design for the system:
-
-- `user-stories.md` - high level user stories
-- `file-store.md` - how various data for each paper are stored in the file system
-- `workflow-state-machine-and-commands.md` - state machine to control the overall workflow and associated commands
