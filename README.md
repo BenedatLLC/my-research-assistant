@@ -53,8 +53,12 @@ export DOC_HOME='/path/to/your/documents'  # Where papers will be stored
 Optional environment variables:
 ```bash
 export DEFAULT_MODEL='gpt-4o'  # LLM model to use (default: gpt-4o)
+export DEFAULT_EMBEDDING_MODEL='text-embedding-ada-002'  # Embedding model (default: text-embedding-ada-002)
+export MODEL_API_BASE='https://api.openai.com/v1'  # API endpoint (default: OpenAI, can use gateway)
 export PDF_VIEWER='/usr/bin/open'  # PDF viewer executable (default: terminal viewer)
 ```
+
+**Note**: The `MODEL_API_BASE` variable allows you to use an API gateway or alternative OpenAI-compatible endpoint. This is useful for load balancing, cost management, or using local model servers.
 
 ### Project File Layout
 
@@ -340,8 +344,13 @@ uv run pytest tests/test_state_machine.py  # Specific test file
 ### Model Configuration
 
 - **Centralized config** via `models.py`
-- **Environment-based selection**: `DEFAULT_MODEL` env var (defaults to `gpt-4o`)
+- **Environment-based selection**:
+  - `DEFAULT_MODEL` - LLM model name (defaults to `gpt-4o`)
+  - `DEFAULT_EMBEDDING_MODEL` - Embedding model (defaults to `text-embedding-ada-002`)
+  - `MODEL_API_BASE` - API endpoint URL (defaults to OpenAI, supports API gateways)
+  - `OPENAI_API_KEY` - API authentication key
 - **OpenAI integration**: Configurable model parameters
+- **API gateway support**: Use `MODEL_API_BASE` to route through proxies or local servers
 - **Caching support**: Performance optimization for repeated queries
 
 ## Development

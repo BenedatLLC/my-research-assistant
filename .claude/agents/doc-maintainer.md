@@ -82,36 +82,78 @@ If Implementation section is missing or incomplete, add it based on information 
 
 **This is CRITICAL**: Always add a devlog.md entry for significant changes.
 
-Format:
+**Format - Match complexity to change size**:
+
+**For SIMPLE changes (bug fixes, small enhancements)** - **5 lines max**:
 ```markdown
-## [Day of week] [Month] [Date], [Year]
+### [Feature/Change Name]
 
-### [Added/Changed/Fixed]
-- [Brief description of what was done]
-- [Key features or changes]
+[One-line summary of what was done and why]
 
-### User Prompt
-\`\`\`
-[The original prompt the user gave]
-\`\`\`
+**Outcome:** [What improved/fixed]
+```
 
-### Implementation Details
-- [Files created/modified]
-- [Key decisions made]
-- [Tests added]
+**For MAJOR features (new commands, significant refactors)** - **10-20 lines**:
+```markdown
+### [Feature/Change Name]
 
-### Outcomes
-- [What was accomplished]
-- [Any follow-up needed]
+[One-line summary of what was implemented]
+
+**Context:** [Why this was needed - 1-2 sentences]
+
+**What was added:** [Bullet list of key changes, no file names]
+- Key feature 1
+- Key feature 2
+- Key feature 3
+
+**Key improvements:**
+- Improvement 1
+- Improvement 2
+
+**Usage:** [Optional: How to use]
+```
+
+**Guidelines**:
+- **Match length to complexity**: Simple fix = 3-5 lines, major feature = 10-20 lines
+- **No file lists**: User can check git log for file changes
+- **Summarize prompts**: Don't include full prompt text
+- **Focus on outcomes**: What changed and why it matters
+- **User-friendly**: Write for someone reading history
+
+**Example of simple change (5 lines)**:
+```markdown
+### Model Configuration Support
+
+Fixed embedding model configuration to use API keys from environment variables. Added test_models.py with 4 tests.
+
+**Outcome:** All embedding tests passing. Support for custom model endpoints via environment variables.
+```
+
+**Example of major feature (15 lines)**:
+```markdown
+### Research Command Implementation
+
+Implemented hierarchical RAG for deep research with citations.
+
+**Context:** Users needed comprehensive research answers combining multiple papers with proper citations.
+
+**What was added:**
+- Four-stage hierarchical RAG (summary search → content search → synthesis → references)
+- Citation extraction and reference formatting
+- Integration with state machine and workflow
+
+**Key improvements:**
+- Efficient multi-stage retrieval strategy
+- Automatic citation generation with page numbers
+- Formatted reference sections
+
+**Usage:** Run `research <query>` from any state to get synthesized answers with citations.
 ```
 
 **Important**:
-- Use the ACTUAL user prompt provided to you (from design-implementer or parent agent)
+- Use information from design-implementer or parent agent (they provide context)
 - Include the date of the work
-- Be specific about what was accomplished
-- Note test coverage added
-
-Place new entries at the TOP of the log (after the TODO section), most recent first.
+- Place new entries at the TOP of the log (after the TODO section), most recent first
 
 ### Phase 3: Consistency and Quality Check
 

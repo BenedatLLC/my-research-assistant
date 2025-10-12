@@ -231,8 +231,10 @@ All documentation must stay in sync with implementation:
 - **README.md**: User-facing commands, features, and examples
 - **CLAUDE.md**: Architecture, development conventions, and design document references
 - **designs/*.md**: Feature specifications with Implementation Plan and Implementation sections
-- **devlog.md**: Development log with user prompts and outcomes (auto-updated by doc-maintainer)
+- **devlog.md**: Concise development log (simple changes: 5 lines max, major features: 10-20 lines)
 - **tests/TESTING_SUMMARY.md**: Test coverage, E2E workflows, and testing gaps
+
+**devlog.md format**: Match length to complexity. Simple fix = 3-5 lines (what + outcome). Major feature = 10-20 lines (context + changes + outcomes). No file lists - use git log.
 
 ### Design Document Structure
 Design documents in `designs/` follow this structure:

@@ -51,7 +51,7 @@ The project uses a **design-first, test-driven approach** with three specialized
 - **What it does**:
   - Updates README.md for user-facing changes
   - Updates CLAUDE.md for architecture changes
-  - Adds devlog.md entry with original user prompt
+  - Adds concise devlog.md entry (context, changes, outcomes)
   - Ensures consistency across all documentation
   - Marks design status as implemented
 
@@ -141,7 +141,7 @@ in designs/new-feature.md?
 5. **Phase 5: Documentation**
    - Completes Implementation section in design
    - Delegates to doc-maintainer
-   - doc-maintainer syncs all docs and adds devlog entry
+   - doc-maintainer syncs all docs and adds concise devlog entry
 
 6. **Final Summary**
    - Comprehensive report of what was done
@@ -200,7 +200,7 @@ You'll receive a comprehensive summary with:
 - All tests passing status
 - Documentation updated
 - Design status: implemented
-- devlog.md updated with your original prompt
+- devlog.md updated with concise entry (context and outcomes)
 
 ## Bug Fix Workflow
 
@@ -343,10 +343,12 @@ When using design-implementer agent:
 - ✅ README.md updated for new commands
 - ✅ CLAUDE.md updated for architecture changes
 - ✅ Design doc gets Implementation section
-- ✅ devlog.md gets entry with YOUR original prompt
+- ✅ devlog.md gets concise entry (simple: 5 lines, major: 10-20 lines)
 - ✅ tests/TESTING_SUMMARY.md updated with new tests
 
 **You don't need to manually update these!** The doc-maintainer agent handles it.
+
+**devlog.md format**: Length matches complexity. Simple change = 3-5 lines (what + outcome). Major feature = 10-20 lines (context + changes + outcomes). No file lists - use git log.
 
 ## Tips for Effective Prompts
 
@@ -553,7 +555,7 @@ Use design-implementer to implement designs/new-feature.md
    - Updates tests/TESTING_SUMMARY.md
 3. design-implementer **automatically delegates to doc-maintainer** (Phase 5)
    - Updates README.md, CLAUDE.md
-   - Adds devlog.md entry with YOUR original prompt
+   - Adds concise devlog.md entry (5 lines for simple, 10-20 for major)
    - Syncs all documentation
 4. design-implementer provides final comprehensive summary
 
@@ -577,7 +579,7 @@ You'll see messages like:
 - "Delegating to qa-engineer for comprehensive testing..."
 - "Delegating to doc-maintainer for documentation sync..."
 - Final summary includes: "Tests added: 15 (5 unit, 7 integration, 3 E2E)"
-- Check `devlog.md` - it will have your original prompt in the entry
+- Check `devlog.md` - it will have a concise entry with context and outcomes
 
 ### What if I just want to fix a quick bug?
 

@@ -135,14 +135,15 @@ Now you implement using a test-first approach for better quality and fewer regre
 2. **Delegate to doc-maintainer for documentation sync**
    - Use the Task tool to launch the doc-maintainer agent
    - Provide context:
-     - What was implemented (summary)
-     - Original user prompt (the one that started this work)
-     - Design document location
-     - Key changes made
+     - What was implemented (brief summary)
+     - Why it was needed (user request summary, not full prompt text)
+     - Is this a simple change or major feature?
+     - Design document location (if applicable)
+     - Key outcomes and improvements
    - The doc-maintainer will:
      - Update README.md (if user-facing changes)
      - Update CLAUDE.md (if architecture changes)
-     - Add devlog.md entry with original user prompt
+     - Add devlog.md entry (simple: 5 lines, major: 10-20 lines)
      - Check consistency across all docs
    - **Wait for doc-maintainer report**
 
@@ -196,6 +197,6 @@ Now you implement using a test-first approach for better quality and fewer regre
 **Documentation Excellence**: Every implementation should result in:
 - Complete Implementation section in design
 - Updated project documentation (README.md, CLAUDE.md)
-- devlog.md entry with original user prompt and outcomes
+- Concise devlog.md entry (simple: 5 lines, major: 10-20 lines - no file lists)
 
 Your goal is to deliver a complete, well-tested implementation that faithfully realizes the design while maintaining consistency with the existing codebase, with comprehensive tests and synchronized documentation.
