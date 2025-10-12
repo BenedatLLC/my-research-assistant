@@ -12,6 +12,7 @@ import pymupdf4llm
 from .file_locations import FILE_LOCATIONS, FileLocations
 from .project_types import PaperMetadata, SearchResult
 from .arxiv_downloader import get_downloaded_paper_ids, get_paper_metadata
+from . import models  # Import to ensure Settings.embed_model is configured
 
 # Initialize global variables to hold the VectorStoreIndex objects.
 # We maintain separate indexes for content (paper text) and summaries/notes.

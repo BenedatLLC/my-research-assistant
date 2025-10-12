@@ -11,7 +11,7 @@ from PIL import Image
 from typing import Optional, Dict, Any
 
 from .file_locations import FILE_LOCATIONS
-from .models import DEFAULT_MODEL_NAME
+from .models import DEFAULT_MODEL
 
 
 class ImageExtractError(Exception):
@@ -145,7 +145,7 @@ def find_and_extract_image(
         # 3. Call the OpenAI API
         print("Sending request to OpenAI to find the image region...")
         response = client.chat.completions.create(
-            model=DEFAULT_MODEL_NAME,
+            model=DEFAULT_MODEL,
             messages=messages,
             response_format={"type": "json_object"},
             #max_completion_tokens=500
@@ -433,7 +433,7 @@ def extract_images_from_pdf(pdf_filename: str, description: str, limit:int=3) ->
                 Respond with only 'yes' or 'no'.
                 """
                 
-                llm = OpenAI(model=DEFAULT_MODEL_NAME, temperature=0)
+                llm = OpenAI(model=DEFAULT_MODEL, temperature=0)
                 response = llm.complete(prompt)
                 print(f"    LLM response: {response.text.strip()}")
                 

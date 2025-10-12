@@ -3,4 +3,6 @@ export PATH="`pwd`/.venv/bin:$PATH"
 export DOC_HOME=`pwd`/docs
 export OPENAI_API_KEY=CHANGEME
 export DEFAULT_MODEL="gpt-4o"
+export DEFAULT_EMBEDDING_MODEL="text-embedding-ada-002"
+export MODEL_API_BASE="https://api.openai.com/v1"
 export PDF_VIEWER=/usr/bin/open # works for mac

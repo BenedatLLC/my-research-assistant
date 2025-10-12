@@ -13,7 +13,7 @@ from llama_index.llms.openai import OpenAI
 
 from .project_types import PaperMetadata
 from .file_locations import FILE_LOCATIONS
-from .models import DEFAULT_MODEL_NAME
+from .models import DEFAULT_MODEL
 from .prompt import subst_prompt
 
 
@@ -98,7 +98,7 @@ def summarize_paper(text: str, pmd: PaperMetadata, feedback: Optional[str] = Non
         prompt = subst_prompt('base-summary-v2', text_block=text)
 
     try:
-        llm = OpenAI(model=DEFAULT_MODEL_NAME)
+        llm = OpenAI(model=DEFAULT_MODEL)
         response = llm.complete(prompt)
         markdown = insert_metadata(extract_markdown(response.text), pmd)
         return markdown

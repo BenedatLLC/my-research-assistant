@@ -1,7 +1,32 @@
 # Development log
 
 ## TODO
+* Make it possible to change the models used and make it clear in the code they are being used
+  (e.g. through LiteLLM or just refactoring)
+* When indexing a file, be sure to skip steps that have already been completed. For example,
+  it seems like summaries get re-indexed each time. Also, is the index truely idempotent?
+  * We may want a --verbose option to print more details
+* improve the deep research
 * Finish the notes command
+* chat interface with intent detection
+
+## Monday Oct 6, 2025
+* Prompted Claud to create a readme file:
+  > I want to open source this project. Can you update the README.md file with the content to help new users
+  > understand the purpose of the project, how to use it, and how it is structured? Be sure to include:
+  > - what the project does and why
+  > - Getting started
+  >   - project file layout
+  >   - pre-requisites
+  >   - installation
+  >   - running
+  >   - example session
+  > - Command reference
+  > - Document store layout
+  > - Implementation overview
+  > - License
+  > 
+  > If you have any questions, be sure to ask me.
 
 ## Sunday Oct 5, 2025
 * Wrote design for research command based on an initial prompt from Gemini
