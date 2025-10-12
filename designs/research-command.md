@@ -303,6 +303,8 @@ You:
 
 ## Implementation
 
+> **Note**: This design was implemented before the introduction of the three-agent workflow system (design-implementer, qa-engineer, doc-maintainer). With the new system, designs should include an "Implementation Plan" section (created by design-implementer agent) before this "Implementation" section. See `designs/TEMPLATE.md` for the current structure. The Implementation Plan includes: step-by-step approach, files to modify, testing strategy, risk areas, and documentation updates - all written and approved before coding begins.
+
 ### Architecture and Files
 
 **Workflow Implementation** (`src/my_research_assistant/workflow.py`):

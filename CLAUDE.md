@@ -179,6 +179,96 @@ The system implements a comprehensive state machine with 6 states:
 - `draft` - In-progress content (summary, search results, research)
 - `original_query` - User's original query for search/research operations
 
+## Development Workflow
+
+### Design-First Approach
+The project follows a **design-first, test-driven development workflow** using three specialized Claude Code agents:
+
+1. **Create design document** in `designs/` directory using `designs/TEMPLATE.md`
+2. **Review design** with Claude to identify edge cases and unclear areas
+3. **Update design** based on feedback and clarifications
+4. **Implement with design-implementer agent**:
+   - Creates detailed implementation plan in design doc
+   - Gets user approval before coding
+   - Implements using test-driven development
+   - Delegates to qa-engineer for comprehensive testing
+   - Delegates to doc-maintainer for documentation sync
+   - Provides comprehensive summary with test counts and status
+
+See `DEVELOPMENT_WORKFLOW.md` for complete workflow guide.
+
+### The Three-Agent System
+
+**design-implementer** (Coordinator):
+- Implements features from design documents
+- Creates implementation plans with user approval
+- Uses test-driven development approach
+- Delegates to specialized agents
+- Located: `.claude/agents/design-implementer.md`
+
+**qa-engineer** (Testing Specialist):
+- Writes comprehensive test coverage (unit, integration, E2E)
+- Ensures API-level testability
+- Validates no existing functionality broken
+- Updates `tests/TESTING_SUMMARY.md`
+- Located: `.claude/agents/qa-engineer.md`
+
+**doc-maintainer** (Documentation Specialist):
+- Syncs README.md, CLAUDE.md, design docs
+- Adds devlog.md entries with original user prompts
+- Ensures documentation consistency
+- Located: `.claude/agents/doc-maintainer.md`
+
+### Testing Requirements
+- **Write tests first** for new functionality (TDD approach)
+- **API-level testing preferred** - avoid terminal I/O simulation when possible
+- **Three test levels required**: Unit, Integration, End-to-End
+- **Update tests/TESTING_SUMMARY.md** after adding tests
+- **All tests must pass** before completion - never break existing functionality
+
+### Documentation Requirements
+All documentation must stay in sync with implementation:
+- **README.md**: User-facing commands, features, and examples
+- **CLAUDE.md**: Architecture, development conventions, and design document references
+- **designs/*.md**: Feature specifications with Implementation Plan and Implementation sections
+- **devlog.md**: Development log with user prompts and outcomes (auto-updated by doc-maintainer)
+- **tests/TESTING_SUMMARY.md**: Test coverage, E2E workflows, and testing gaps
+
+### Design Document Structure
+Design documents in `designs/` follow this structure:
+- **Requirements and use cases** - What and why
+- **Design and architecture** - How it works
+- **Testing considerations** - What to test
+- **Implementation Plan** - Written before coding (step-by-step, files, tests, risks)
+- **Implementation** - How it was actually built (added after completion)
+
+### Example Workflow
+```bash
+# 1. Create design
+cp designs/TEMPLATE.md designs/new-feature.md
+# Edit with requirements
+
+# 2. Review with Claude
+"Review designs/new-feature.md for clarity and edge cases"
+
+# 3. Update based on feedback
+"Update the design with [clarifications]"
+
+# 4. Implement with agent
+"Use design-implementer to implement designs/new-feature.md"
+# Agent creates plan and asks for approval
+# Agent implements with TDD
+# Agent delegates to qa-engineer and doc-maintainer
+# Agent provides comprehensive summary
+
+# 5. All done!
+# - Feature implemented
+# - Tests written (15 tests: 5 unit, 7 integration, 3 E2E)
+# - All tests passing
+# - Documentation synced
+# - devlog.md updated with your original prompt
+```
+
 ## Development Notes
 
 ### Working with Papers
