@@ -7,6 +7,11 @@
 * improve the deep research
 * Finish the notes command
 * chat interface with intent detection
+* Handle "old-style" arxiv ids that contain a "/"
+
+## Tuesday Oct 14, 2025
+
+* Implemented search api using Google Custom Search engine (google_search.py).
 
 ## Sunday Oct 12, 2025
 

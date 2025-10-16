@@ -1,5 +1,11 @@
-"""Uses the google private search api to find papers
+"""Uses the google custom search api to find papers
 See https://developers.google.com/custom-search/v1/introduction for details.
+You need a custom search engine that restricts searches to arxiv.org (so we only
+get arXiv papers as the matches). 
+
+There are two environment variables that must be set to use this:
+GOOGLE_SEARCH_API_KEY   - this is your API key (used by Google for rate limiting, etc.)
+GOOGLE_SEARCH_ENGINE_ID - this is the id of your custom search engine
 """
 import requests
 import json
