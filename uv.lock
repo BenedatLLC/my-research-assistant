@@ -1389,6 +1389,7 @@ dependencies = [
     { name = "pymupdf" },
     { name = "pymupdf4llm" },
     { name = "reportlab" },
+    { name = "requests" },
     { name = "rich" },
 ]
 
@@ -1411,6 +1412,7 @@ requires-dist = [
     { name = "pymupdf", specifier = ">=1.26.3" },
     { name = "pymupdf4llm", specifier = ">=0.0.27" },
     { name = "reportlab", specifier = ">=4.4.3" },
+    { name = "requests", specifier = ">=2.32.4" },
     { name = "rich", specifier = ">=14.1.0" },
 ]
 

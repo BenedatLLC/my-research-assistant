@@ -1,28 +1,30 @@
 ---
 status: draft
 ---
-# Design: Enhanced Find Command with Web Search
+# Design: Enhanced Find Command with Google Custom Search
 
-_Enhance the `find` command to use web search as the primary discovery method, with configurable fallback to ArXiv API search._
+_Enhance the `find` command to use Google Custom Search API as the primary discovery method, with fallback to ArXiv API search._
 
 ## Overview
 
-The current `find` command uses the ArXiv API's keyword search to discover papers. However, as of October 2025, the ArXiv API keyword search is returning 0 results for all text-based queries, while ID-based lookups continue to work. This design enhances the `find` command to use web search (via `site:arxiv.org` queries) as the primary discovery method, providing:
+The current `find` command uses the ArXiv API's keyword search to discover papers. However, as of October 2025, the ArXiv API keyword search is returning 0 results for all text-based queries, while ID-based lookups continue to work. This design enhances the `find` command to use Google Custom Search API (configured to search only arxiv.org) as the primary discovery method, providing:
 
-- **More reliable search** - Web search finds papers even when ArXiv API keyword search is broken
-- **Higher quality results** - Web search provides better relevance matching, not just exact title matches
-- **Graceful degradation** - Configurable fallback to ArXiv API when web search is unavailable or disabled
+- **More reliable search** - Google Custom Search finds papers even when ArXiv API keyword search is broken
+- **Higher quality results** - Google search provides better relevance matching, not just exact title matches
+- **Graceful degradation** - Automatic fallback to ArXiv API when Google search credentials are not configured
 - **Consistent behavior** - Results sorted by paper ID, consistent with `list` command and state variables
 
 The enhancement maintains backward compatibility while providing a more robust search experience.
 
 ## User Stories / Use Cases
 
-1. **Use Case 1**: User wants to find papers on a specific topic using the default web search
+1. **Use Case 1**: User wants to find papers with Google Custom Search configured
    - User action: `find transformer attention mechanisms`
    - System response:
-     - Performs web search with `site:arxiv.org transformer attention mechanisms`
-     - Extracts ArXiv IDs from search results
+     - Detects Google API credentials are configured
+     - Logs: "Using Google Custom Search..."
+     - Performs Google Custom Search (restricted to arxiv.org)
+     - Extracts ArXiv IDs from search results (10 papers)
      - Fetches metadata via ArXiv API for discovered papers
      - Applies semantic reranking
      - Sorts results by paper ID
@@ -31,33 +33,39 @@ The enhancement maintains backward compatibility while providing a more robust s
 
 2. **Use Case 2**: User wants to find a paper by exact title
    - User action: `find Evaluating Large Language Models Trained on Code`
-   - System response: Web search finds exact title match, returns it in the results
+   - System response: Google Custom Search finds exact title match, returns it in the results
    - Outcome: User finds the specific paper they were looking for
 
-3. **Use Case 3**: User wants to use ArXiv API search only (e.g., no web search quota)
-   - User action: Sets `USE_WEB_SEARCH=no` environment variable, then runs `find machine learning`
-   - System response: Uses ArXiv API keyword search exclusively (legacy behavior)
-   - Outcome: Search behaves as it did before, useful when ArXiv API is working or web search unavailable
+3. **Use Case 3**: User has not configured Google search credentials
+   - User action: Runs `find machine learning` without setting Google API credentials
+   - System response:
+     - Detects credentials not configured
+     - Logs: "Google Custom Search not configured, using ArXiv API search..."
+     - Uses ArXiv API keyword search (legacy behavior)
+   - Outcome: Search behaves as it did before, automatic fallback when Google search unavailable
 
-4. **Use Case 4**: User searches for a very specific query
+4. **Use Case 4**: Google search fails (rate limit, network error, etc.)
    - User action: `find DeepSeek-V3 Technical Report`
-   - System response: Web search finds the exact paper, returns metadata
-   - Outcome: User gets the specific technical report with all ArXiv metadata
+   - System response:
+     - Google API returns error
+     - Raises exception with message: "Google Custom Search failed: <reason>. Search unavailable."
+   - Outcome: User informed of the failure, can retry later or wait for quota reset
 
 ## Requirements
 
 ### Functional Requirements
 
-- **FR1**: The system shall use web search as the default discovery method when USE_WEB_SEARCH is not set or is set to "yes" (case-insensitive)
-- **FR2**: The system shall use ArXiv API keyword search exclusively when USE_WEB_SEARCH is set to "no" (case-insensitive)
-- **FR3**: When using web search, the system shall query with `site:arxiv.org <user_query>`
-- **FR4**: The system shall extract ArXiv paper IDs from web search result URLs (formats: `/abs/ID`, `/pdf/ID`, `/html/ID`)
-- **FR5**: The system shall fetch full paper metadata using ArXiv API ID lookup (which is working reliably)
-- **FR6**: The system shall apply semantic reranking to search results (existing behavior)
-- **FR7**: The system shall sort final results by paper ID in ascending order (consistent with `list` command)
-- **FR8**: The system shall limit results to the requested number (default k=5)
-- **FR9**: The system shall handle duplicate paper IDs (same paper found multiple times in web search)
-- **FR10**: The system shall gracefully handle version numbers in ArXiv IDs (e.g., strip `v1`, `v2` for API lookup)
+- **FR1**: The system shall use Google Custom Search when both GOOGLE_SEARCH_API_KEY and GOOGLE_SEARCH_ENGINE_ID environment variables are set and non-empty
+- **FR2**: The system shall use ArXiv API keyword search when Google credentials are not configured (automatic fallback)
+- **FR3**: The system shall retrieve 10 papers from Google Custom Search (single API call)
+- **FR4**: The system shall extract ArXiv paper IDs from search result URLs (formats: `/abs/ID`, `/pdf/ID`, `/html/ID`)
+- **FR5**: The system shall preserve version numbers in extracted ArXiv IDs (e.g., keep "2510.11694v1")
+- **FR6**: The system shall deduplicate papers by choosing the latest version when multiple versions are found
+- **FR7**: The system shall fetch full paper metadata using ArXiv API ID lookup (which is working reliably)
+- **FR8**: The system shall apply semantic reranking to all retrieved papers (existing behavior)
+- **FR9**: The system shall sort final results by paper ID in ascending order (consistent with `list` command)
+- **FR10**: The system shall limit displayed results to the requested number (default k=5)
+- **FR11**: The system shall log which search method is being used for debugging purposes
 
 ### Non-Functional Requirements
 
@@ -83,28 +91,32 @@ User runs: find <query>
 └────────────────────────────┘
          │
          ▼
-   Check USE_WEB_SEARCH env var
+   Check Google API credentials
+   (API_KEY and ENGINE_ID set?)
          │
-    ┌────┴────┐
-    │         │
-    ▼         ▼
-  "yes"      "no"
-  (default)  (legacy)
-    │         │
-    ▼         ▼
+    ┌────┴──────────────────────────┐
+    │                               │
+    ▼                               ▼
+  YES                               NO
+  (Google)                     (ArXiv API)
+    │                               │
+    ▼                               ▼
 ┌─────────────────────┐  ┌──────────────────────┐
-│ _web_search_arxiv() │  │ _arxiv_keyword_search│
+│ _google_search()    │  │ _arxiv_keyword_search│
 │                     │  │ (existing function)  │
-│ 1. WebSearch        │  │                      │
-│    site:arxiv.org   │  │ arxiv.Search(query)  │
+│ 1. google_search_   │  │                      │
+│    arxiv(query, 10) │  │ arxiv.Search(query)  │
 │ 2. Extract IDs      │  │                      │
-│ 3. arxiv.Search     │  │                      │
+│ 3. Deduplicate      │  │                      │
+│    (latest version) │  │                      │
+│ 4. arxiv.Search     │  │                      │
 │    (id_list)        │  └──────────────────────┘
 └─────────────────────┘           │
          │                        │
          └──────────┬─────────────┘
                     ▼
          candidates: list[PaperMetadata]
+         (10 papers from Google, or 50 from ArXiv)
                     │
                     ▼
          ┌──────────────────────┐
@@ -125,12 +137,14 @@ User runs: find <query>
                     │
                     ▼
          Return: list[PaperMetadata]
-         (sorted by paper ID)
+         (top k sorted by paper ID)
 ```
 
 ### State Management
 
-No changes to state machine. The `find` command continues to transition from any state to `select-new` state, with `last_query_set` containing the list of found paper IDs (sorted by paper ID).
+No changes to state machine. The `find` command continues to transition from any state to `select-new` state, with `last_query_set` containing the list of found paper IDs (sorted by paper ID). If there is a
+problem with the search or no papers returned, stay in the previous state and do not change any of
+the workflow state variables.
 
 ### Data Structures
 
@@ -138,32 +152,32 @@ No new data structures. Continues to use existing `PaperMetadata` from `project_
 
 ### Key Functions
 
-#### New Function: `_web_search_arxiv()`
+#### New Function: `_google_search_arxiv_papers()`
 
 ```python
-def _web_search_arxiv(query: str, max_results: int) -> list[PaperMetadata]:
+def _google_search_arxiv_papers(query: str) -> list[PaperMetadata]:
     """
-    Search for papers using web search + ArXiv API.
+    Search for papers using Google Custom Search + ArXiv API.
 
     Parameters
     ----------
     query : str
         User's search query
-    max_results : int
-        Maximum number of papers to return
 
     Returns
     -------
     list[PaperMetadata]
-        Papers found via web search, with full metadata from ArXiv API
+        Papers found via Google search (up to 10), with full metadata from ArXiv API
 
     Raises
     ------
     Exception
-        If web search fails or ArXiv API cannot fetch metadata
+        If Google search fails or ArXiv API cannot fetch metadata
     """
-    # 1. Perform web search with site:arxiv.org
-    # 2. Extract ArXiv IDs from result URLs
+    # 1. Call google_search_arxiv(query, k=10) from google_search.py
+    # 2. Deduplicate IDs by choosing latest version:
+    #    - Group by base ID (strip version)
+    #    - For each group, choose highest version number
     # 3. Fetch metadata using arxiv.Search(id_list=[...])
     # 4. Return list of PaperMetadata
 ```
@@ -173,45 +187,58 @@ def _web_search_arxiv(query: str, max_results: int) -> list[PaperMetadata]:
 ```python
 def search_arxiv_papers(query: str, k: int = 1, candidate_limit: int = 50) -> list[PaperMetadata]:
     """
-    Search for papers using web search (default) or ArXiv API (if USE_WEB_SEARCH=no).
+    Search for papers using Google Custom Search (if configured) or ArXiv API (fallback).
 
     Parameters
     ----------
     query : str
         Search query
     k : int
-        Number of results to return after reranking
+        Number of results to return after reranking (default 5)
     candidate_limit : int
-        Maximum candidates to retrieve before reranking
+        Maximum candidates to retrieve before reranking (for ArXiv API only, default 50)
 
     Returns
     -------
     list[PaperMetadata]
         Top k papers, sorted by paper ID (ascending)
     """
-    # 1. Check USE_WEB_SEARCH environment variable
-    # 2. Call _web_search_arxiv() or _arxiv_keyword_search()
-    # 3. Apply semantic reranking (existing logic)
-    # 4. Sort results by paper ID
-    # 5. Return top k papers
+    # 1. Check if Google credentials are configured (API_KEY and ENGINE_ID)
+    # 2. If configured:
+    #    - Log: "Using Google Custom Search..."
+    #    - Call _google_search_arxiv_papers() -> 10 papers
+    # 3. If not configured:
+    #    - Log: "Google Custom Search not configured, using ArXiv API search..."
+    #    - Call _arxiv_keyword_search() -> candidate_limit papers
+    # 4. Apply semantic reranking (existing logic)
+    # 5. Sort results by paper ID
+    # 6. Return top k papers
 ```
 
-### URL Parsing
+### URL Parsing and Version Handling
 
 ArXiv URLs come in multiple formats:
 - Abstract: `https://arxiv.org/abs/2107.03374`
 - PDF: `https://arxiv.org/pdf/2107.03374`
 - HTML: `https://arxiv.org/html/2412.19437v1`
 - Versioned: `https://arxiv.org/abs/2107.03374v2`
+- Legacy: `https://arxiv.org/abs/hep-th/9901001`
 
-Regular expression pattern:
+The existing `extract_arxiv_id()` function in `google_search.py` handles all these formats.
+
+**Version handling strategy:**
+1. Preserve version numbers in extracted IDs (e.g., keep "2107.03374v2")
+2. When multiple versions of same paper found, choose the latest:
+   - Group IDs by base ID (strip "v" suffix)
+   - Compare version numbers (v2 > v1 > no version)
+   - Keep only the latest version
+3. Pass versioned IDs to ArXiv API (API returns that specific version)
+
+Example deduplication:
 ```python
-r'/(?:abs|pdf|html)/(\d+\.\d+(?:v\d+)?)'
+# Input IDs: ["2107.03374", "2107.03374v1", "2107.03374v2", "2308.03873"]
+# After deduplication: ["2107.03374v2", "2308.03873"]
 ```
-
-Version handling:
-- Extract: `2107.03374v2`
-- Strip version for API: `2107.03374` (ArXiv API handles version automatically)
 
 ### User Interface
 
@@ -245,151 +272,202 @@ Found 5 papers:
 ...
 ```
 
-### Environment Variable
+### Environment Variables
 
-**`USE_WEB_SEARCH`** - Controls search method
-- **Not set** (default): Use web search
-- **"yes"** (case-insensitive): Use web search
-- **"no"** (case-insensitive): Use ArXiv API keyword search only
-- **Any other value**: Log warning, default to web search
+**`GOOGLE_SEARCH_API_KEY`** - Google Custom Search API key
+- Required for Google Custom Search
+- Obtained from Google Cloud Console
+- Used for authentication and rate limiting
 
-Check logic:
+**`GOOGLE_SEARCH_ENGINE_ID`** - Custom Search Engine ID
+- Required for Google Custom Search
+- Identifies the search engine (configured to search only arxiv.org)
+- Obtained from Google Custom Search Engine dashboard
+
+**Configuration check logic:**
 ```python
-use_web_search = os.environ.get('USE_WEB_SEARCH', 'yes').lower() != 'no'
+from my_research_assistant.google_search import API_KEY, SEARCH_ENGINE_ID
+
+# Google search is available if both credentials are set and non-empty
+google_search_available = (
+    API_KEY is not None and API_KEY != "" and
+    SEARCH_ENGINE_ID is not None and SEARCH_ENGINE_ID != ""
+)
+
+if google_search_available:
+    logger.info("Using Google Custom Search...")
+    # Use Google search path
+else:
+    logger.info("Google Custom Search not configured, using ArXiv API search...")
+    # Use ArXiv API path
 ```
 
 ### Error Handling
 
-1. **Web search fails** (network error, quota exceeded, etc.)
+1. **Google search fails** (network error, quota exceeded, rate limit, etc.)
+   - The `google_search_arxiv()` function raises an Exception
    - Log error with details
-   - Raise exception with user-friendly message: "Web search failed: <reason>. Try setting USE_WEB_SEARCH=no to use ArXiv API directly."
+   - Raise exception with user-friendly message: "Google Custom Search failed: <reason>. Search unavailable."
+   - **Do NOT fall back to ArXiv API** - inform user of failure
+   - Stay in previous workflow state and leave the state variables at their current values
 
-2. **No papers found via web search**
+2. **Google credentials not configured**
+   - Log info: "Google Custom Search not configured, using ArXiv API search..."
+   - Use ArXiv API keyword search (automatic fallback)
+   - This is expected behavior, not an error
+
+3. **No papers found via Google search**
    - Return empty list
    - User sees: "No papers found matching query: <query>"
+   - Stay in previous workflow state and leave the state variables at their current values
 
-3. **ArXiv ID extraction fails**
-   - Skip URLs that don't match pattern
-   - Log warning with URL
+4. **ArXiv ID extraction fails for some URLs**
+   - `extract_arxiv_id()` returns None for invalid URLs
+   - Skip those URLs silently
    - Continue processing remaining URLs
+   - This is handled in `google_search_arxiv()` already
 
-4. **ArXiv API metadata fetch fails**
+5. **ArXiv API metadata fetch fails**
    - Log error with paper IDs that failed
    - Continue with successfully fetched papers
-   - If all fail, raise exception
+   - If all fail, raise exception with clear message
 
-5. **Invalid USE_WEB_SEARCH value**
-   - Log warning: "Invalid USE_WEB_SEARCH value '<value>', defaulting to 'yes'"
-   - Proceed with web search
+6. **GoogleSearchNotConfigured exception**
+   - Should never reach user since we check credentials first
+   - If it does occur, treat as programming error and log
 
 ### Edge Cases
 
-1. **Duplicate paper IDs in web search results**
-   - Solution: Use set to track seen IDs, skip duplicates
+1. **Duplicate paper IDs with same version**
+   - Solution: Use set to track seen IDs, skip exact duplicates
 
-2. **Version numbers in URLs** (`2107.03374v1`, `2107.03374v2`)
-   - Solution: Strip version suffix before deduplication and API lookup
+2. **Multiple versions of same paper** (`2107.03374`, `2107.03374v1`, `2107.03374v2`)
+   - Solution: Deduplicate by choosing latest version
+   - Implementation: Group by base ID, compare version numbers, keep highest
 
 3. **Very generic queries** (e.g., "AI", "neural network")
-   - May return many results from web search
-   - Limit to `candidate_limit` URLs processed
-   - Semantic reranking narrows to top k
+   - Google returns 10 results
+   - Semantic reranking narrows to top k (default 5)
+   - Behavior matches current ArXiv API search
 
 4. **Query with special characters** (e.g., quotes, ampersands)
-   - Web search handles URL encoding automatically
+   - Google search handles URL encoding automatically (via requests library)
    - No special processing needed
 
-5. **Web search returns 0 results but papers exist**
-   - User can try reformulating query or setting USE_WEB_SEARCH=no
-   - System returns empty list, consistent with current behavior
+5. **Google search returns 0 results but papers exist**
+   - System returns empty list
+   - User can try reformulating query
+   - Consistent with current behavior
 
 6. **ArXiv API is completely down**
-   - Both web search and ArXiv keyword search will fail at metadata fetch
-   - Raise exception with clear message
+   - Both Google search and ArXiv keyword search will fail at metadata fetch
+   - Raise exception with clear message: "ArXiv API unavailable"
 
-7. **Papers in web search are withdrawn/deleted**
-   - ArXiv API will fail to fetch metadata
+7. **Papers in search results are withdrawn/deleted**
+   - ArXiv API will fail to fetch metadata for those papers
    - Log warning, skip those papers
    - Return successfully fetched papers
 
 8. **Empty query**
    - Existing validation in chat interface handles this
-   - If it reaches search function, web search will return generic results
+   - If it reaches search function, Google search will return generic ArXiv papers
    - ArXiv API would also return generic results
+
+9. **Google API quota exhausted**
+   - Google API returns 429 status code
+   - Exception raised: "Google Custom Search failed: API request failed with status code 429"
+   - User must wait for quota reset or upgrade quota
+
+10. **User switches from Google search to ArXiv API mid-session**
+    - User unsets GOOGLE_SEARCH_API_KEY environment variable
+    - Next search will detect credentials not configured
+    - Automatically switches to ArXiv API search
+    - Behavior change logged for transparency
 
 ## Testing Considerations
 
 ### Test Scenarios
 
-1. **Scenario 1**: Web search finds papers successfully (happy path)
-   - Given: USE_WEB_SEARCH is not set (defaults to "yes")
+1. **Scenario 1**: Google search finds papers successfully (happy path)
+   - Given: GOOGLE_SEARCH_API_KEY and GOOGLE_SEARCH_ENGINE_ID are set
    - When: User runs `find transformer attention`
    - Then:
-     - Web search is called with `site:arxiv.org transformer attention`
-     - ArXiv IDs are extracted from URLs
-     - Metadata is fetched via ArXiv API
-     - Results are sorted by paper ID
-     - Top k papers are returned
+     - System logs: "Using Google Custom Search..."
+     - google_search_arxiv() called with query and k=10
+     - ArXiv IDs extracted (with versions preserved)
+     - Duplicates removed (keeping latest versions)
+     - Metadata fetched via ArXiv API for up to 10 papers
+     - Semantic reranking applied
+     - Results sorted by paper ID
+     - Top k papers (default 5) returned
 
-2. **Scenario 2**: ArXiv API search used when web search disabled
-   - Given: USE_WEB_SEARCH=no
+2. **Scenario 2**: Google credentials not configured (automatic fallback)
+   - Given: GOOGLE_SEARCH_API_KEY or GOOGLE_SEARCH_ENGINE_ID not set
    - When: User runs `find machine learning`
    - Then:
+     - System logs: "Google Custom Search not configured, using ArXiv API search..."
      - ArXiv API keyword search is used (legacy behavior)
-     - No web search is performed
+     - Up to 50 candidate papers retrieved
      - Results sorted by paper ID
 
-3. **Scenario 3**: Web search returns no results
-   - Given: USE_WEB_SEARCH=yes
+3. **Scenario 3**: Google search returns no results
+   - Given: Google credentials configured
    - When: User runs `find xyzabc123nonexistent`
    - Then:
-     - Web search returns empty list
+     - Google search returns empty list
      - User sees "No papers found" message
-     - State remains unchanged
+     - State remains unchanged (not transitioned to select-new)
 
-4. **Scenario 4**: Duplicate papers in web search
-   - Given: Web search returns same paper multiple times (different URLs)
-   - When: Processing web search results
+4. **Scenario 4**: Multiple versions of same paper
+   - Given: Google returns ["2107.03374", "2107.03374v1", "2107.03374v2"]
+   - When: Processing search results
    - Then:
-     - Duplicates are detected and removed
-     - Only one copy of paper in final results
+     - Duplicates detected by base ID
+     - Latest version kept: "2107.03374v2"
+     - Only one metadata fetch for that paper
+     - Only one entry in final results
 
-5. **Scenario 5**: Version numbers in URLs
-   - Given: Web search returns URLs with versions (v1, v2)
-   - When: Extracting ArXiv IDs
+5. **Scenario 5**: Exact duplicate IDs
+   - Given: Google returns ["2308.03873", "2308.03873", "2412.19437v1"]
+   - When: Processing search results
    - Then:
-     - Version suffixes are stripped
-     - Latest version is fetched from ArXiv API
-     - Deduplication handles multiple versions of same paper
+     - Exact duplicates removed
+     - Final IDs: ["2308.03873", "2412.19437v1"]
 
 6. **Scenario 6**: Some papers fail metadata fetch
-   - Given: Web search returns 10 paper IDs
+   - Given: Google returns 10 paper IDs
    - When: 2 papers fail ArXiv API fetch (withdrawn/error)
    - Then:
      - 8 papers with successful metadata are returned
-     - Errors are logged
-     - No exception raised
+     - Errors logged for failed papers
+     - No exception raised (graceful degradation)
 
-7. **Scenario 7**: Environment variable variations
-   - Given: USE_WEB_SEARCH is set to "YES", "yes", "No", "NO", "YES", etc.
-   - When: Checking environment variable
-   - Then: Case-insensitive comparison works correctly
+7. **Scenario 7**: Google API failure (rate limit, network error)
+   - Given: Google credentials configured but quota exhausted
+   - When: User runs `find deep learning`
+   - Then:
+     - google_search_arxiv() raises Exception
+     - Exception message: "Google Custom Search failed: API request failed with status code 429"
+     - User sees error message
+     - No automatic fallback to ArXiv API
 
-8. **Scenario 8**: Web search with exact title match
+8. **Scenario 8**: Google search with exact title match
    - Given: User searches for exact paper title
    - When: `find Evaluating Large Language Models Trained on Code`
    - Then:
-     - Web search finds exact match
-     - Paper appears in top results
-     - Sorted by paper ID
+     - Google search finds exact match
+     - Paper appears in results
+     - Results sorted by paper ID
 
 ### End-to-End User Flows
 
-1. **Flow 1**: Find → Summarize workflow (web search)
-   - Step 1: User runs `find transformer attention`
-   - Step 2: System performs web search, displays 5 papers sorted by ID
-   - Step 3: User runs `summarize 2`
-   - Step 4: System downloads and summarizes paper #2 from results
+1. **Flow 1**: Find → Summarize workflow (Google search)
+   - Step 1: User has Google credentials configured
+   - Step 2: User runs `find transformer attention`
+   - Step 3: System logs "Using Google Custom Search..."
+   - Step 4: System retrieves 10 papers, displays top 5 sorted by ID
+   - Step 5: User runs `summarize 2`
+   - Step 6: System downloads and summarizes paper #2 from results
    - **Expected**: State transitions to `select-new`, then `summarized`, paper ID in `selected_paper`
 
 2. **Flow 2**: Find → List → Summary (sorted by ID)
@@ -400,129 +478,152 @@ use_web_search = os.environ.get('USE_WEB_SEARCH', 'yes').lower() != 'no'
    - Step 5: User runs `summary 1`
    - **Expected**: Consistent paper numbering across commands
 
-3. **Flow 3**: Legacy ArXiv search workflow
-   - Step 1: User sets `export USE_WEB_SEARCH=no`
+3. **Flow 3**: Automatic fallback to ArXiv search
+   - Step 1: User does not configure Google credentials
    - Step 2: User runs `find neural networks`
-   - Step 3: System uses ArXiv API keyword search (if working)
-   - Step 4: Results displayed sorted by paper ID
-   - **Expected**: Same behavior as before enhancement
+   - Step 3: System logs "Google Custom Search not configured, using ArXiv API search..."
+   - Step 4: System uses ArXiv API keyword search
+   - Step 5: Results displayed sorted by paper ID
+   - **Expected**: Same behavior as before enhancement (backward compatible)
 
 ### Unit Tests (with Mocks)
 
-1. **test_web_search_arxiv_basic()**
-   - Mock WebSearch to return sample ArXiv URLs
+1. **test_google_search_arxiv_basic()**
+   - Mock google_search_arxiv() to return sample paper IDs
    - Mock ArXiv API to return sample metadata
-   - Assert: Correct paper IDs extracted and metadata fetched
+   - Assert: Correct paper IDs processed and metadata fetched
 
-2. **test_web_search_arxiv_duplicate_ids()**
-   - Mock WebSearch with duplicate paper URLs
-   - Assert: Duplicates removed, only unique papers returned
+2. **test_google_search_arxiv_version_deduplication()**
+   - Mock google_search_arxiv() returns ["2107.03374", "2107.03374v1", "2107.03374v2"]
+   - Assert: Only "2107.03374v2" kept (latest version)
+   - Assert: ArXiv API called with deduplicated IDs
 
-3. **test_web_search_arxiv_version_handling()**
-   - Mock WebSearch with versioned URLs (v1, v2)
-   - Assert: Versions stripped, API called with base ID
+3. **test_google_search_arxiv_exact_duplicates()**
+   - Mock google_search_arxiv() returns ["2308.03873", "2308.03873"]
+   - Assert: Duplicates removed, only one "2308.03873" in results
 
-4. **test_search_arxiv_papers_use_web_search_yes()**
-   - Set USE_WEB_SEARCH=yes
-   - Mock web search functions
-   - Assert: Web search path is taken
+4. **test_search_arxiv_papers_with_google_configured()**
+   - Mock Google credentials as configured
+   - Mock google_search_arxiv() function
+   - Assert: Google search path is taken
+   - Assert: Log message "Using Google Custom Search..." is emitted
 
-5. **test_search_arxiv_papers_use_web_search_no()**
-   - Set USE_WEB_SEARCH=no
+5. **test_search_arxiv_papers_without_google_configured()**
+   - Mock Google credentials as not configured
    - Mock ArXiv API
    - Assert: ArXiv keyword search path is taken
+   - Assert: Log message "Google Custom Search not configured..." is emitted
 
-6. **test_search_arxiv_papers_default()**
-   - USE_WEB_SEARCH not set
-   - Assert: Defaults to web search
+6. **test_search_arxiv_papers_sorted_by_id()**
+   - Mock search returns papers out of order: ["2412.19437", "2107.03374", "2308.03873"]
+   - Assert: Final results sorted by paper ID ascending: ["2107.03374", "2308.03873", "2412.19437"]
 
-7. **test_search_arxiv_papers_sorted_by_id()**
-   - Mock search returns papers out of order
-   - Assert: Final results sorted by paper ID ascending
-
-8. **test_url_parsing_various_formats()**
-   - Test regex with abs, pdf, html URLs
-   - Test with and without version numbers
-   - Assert: All formats parsed correctly
-
-9. **test_web_search_empty_results()**
-   - Mock WebSearch returns empty list
+7. **test_google_search_empty_results()**
+   - Mock google_search_arxiv() returns empty list
    - Assert: Returns empty list, no errors
 
-10. **test_web_search_arxiv_api_failure()**
-    - Mock WebSearch succeeds
-    - Mock ArXiv API raises exception
-    - Assert: Exception propagated with clear message
+8. **test_google_search_api_failure()**
+   - Mock google_search_arxiv() raises Exception("API request failed")
+   - Assert: Exception propagated with message about Google search failure
 
-11. **test_env_var_case_insensitive()**
-    - Test YES, yes, No, NO variations
-    - Assert: Correct behavior for all cases
+9. **test_arxiv_api_metadata_failure_partial()**
+   - Mock google_search_arxiv() succeeds with 10 IDs
+   - Mock ArXiv API to fail for 2 papers
+   - Assert: 8 papers with successful metadata returned
+   - Assert: Error logged for failed papers
 
-12. **test_invalid_env_var_value()**
-    - Set USE_WEB_SEARCH=maybe
-    - Assert: Warning logged, defaults to web search
+10. **test_google_credentials_check_logic()**
+    - Test various combinations of API_KEY and SEARCH_ENGINE_ID
+    - Assert: Correct detection of configured vs not configured
+
+11. **test_version_number_comparison()**
+    - Test helper function for comparing versions
+    - Input: ["2107.03374", "2107.03374v1", "2107.03374v2", "2107.03374v10"]
+    - Assert: "2107.03374v10" chosen as latest (numeric comparison, not string)
+
+12. **test_legacy_arxiv_id_handling()**
+    - Mock google_search_arxiv() returns ["hep-th/9901001"]
+    - Assert: Legacy ID handled correctly by ArXiv API
 
 ### Integration Tests
 
-1. **test_find_command_with_web_search_integration()**
+1. **test_find_command_with_google_search_integration()**
    - Use actual ChatInterface and WorkflowRunner
-   - Mock only external calls (WebSearch, ArXiv API)
-   - Test state transitions and query set population
+   - Mock only external calls (google_search_arxiv, ArXiv API)
+   - Mock Google credentials as configured
+   - Test state transitions (initial → select-new)
+   - Test query set population with sorted paper IDs
 
-2. **test_find_with_legacy_search_integration()**
-   - Set USE_WEB_SEARCH=no
-   - Test legacy path still works
+2. **test_find_with_arxiv_fallback_integration()**
+   - Mock Google credentials as not configured
+   - Mock ArXiv API
+   - Test automatic fallback path
+   - Verify log message about using ArXiv API
 
 ## Dependencies
 
 - **Existing**: `arxiv` Python library (for metadata fetch via ID lookup)
-- **Existing**: `WebSearch` tool (available in Claude Code environment)
+- **Existing**: `google_search.py` module with `google_search_arxiv()` and `extract_arxiv_id()` functions
+- **Existing**: `requests` library (used by google_search.py)
 - **Existing**: Semantic reranking logic in `search_arxiv_papers()`
 - **Existing**: `PaperMetadata` data structure
 - **Existing**: State machine and chat interface
+- **Existing**: Logging infrastructure
 
 No new external dependencies required.
 
 ## Alternatives Considered
 
-### Alternative 1: Local repository search first
-- **Pros**: Fast, works offline, finds papers user already has
-- **Cons**: Doesn't discover new papers, requires indexed local collection
-- **Decision**: Not chosen because user's primary use case is discovering new papers on ArXiv. Local search could be added later as a complementary feature.
+### Alternative 1: Fall back to ArXiv API when Google search fails
+- **Pros**: More resilient, search always works
+- **Cons**: Hides quota/rate limit issues, inconsistent results between attempts
+- **Decision**: Not chosen - user prefers to know when Google search fails so they can manage quotas
 
-### Alternative 2: Web search as fallback only
+### Alternative 2: Use Google search as fallback only (keep ArXiv API as primary)
 - **Pros**: Preserves existing behavior when ArXiv API works
 - **Cons**: Inferior results quality, still breaks when ArXiv API has issues
-- **Decision**: Not chosen because user prefers web search for quality and reliability
+- **Decision**: Not chosen - Google search provides better quality results and is more reliable
 
-### Alternative 3: Make web search the only method (remove ArXiv keyword search)
+### Alternative 3: Make Google search the only method (remove ArXiv keyword search)
 - **Pros**: Simpler code, one code path
-- **Cons**: No fallback if web search unavailable, less flexible
-- **Decision**: Not chosen because user may want ArXiv-only search (quotas, regional restrictions)
+- **Cons**: No fallback if Google credentials not configured, forces all users to set up Google API
+- **Decision**: Not chosen - automatic fallback to ArXiv API provides better user experience
 
-### Alternative 4: Use different reranking for web vs ArXiv results
-- **Pros**: Could optimize for each search type
-- **Cons**: More complexity, inconsistent results
-- **Decision**: Not chosen - keep consistent semantic reranking for all results
+### Alternative 4: Retrieve 15 papers with 2 Google API calls
+- **Pros**: More candidates for reranking
+- **Cons**: Uses 2x quota, slower, 10 papers sufficient for good results
+- **Decision**: Not chosen - single API call with 10 results balances quality and quota usage
 
-### Alternative 5: Sort results by relevance score instead of paper ID
+### Alternative 5: Strip version numbers before passing to ArXiv API
+- **Pros**: Simpler deduplication logic
+- **Cons**: Always gets latest version, loses user's version-specific search intent
+- **Decision**: Not chosen - preserving versions allows for version-specific paper discovery
+
+### Alternative 6: Sort results by relevance score instead of paper ID
 - **Pros**: Most relevant papers shown first
 - **Cons**: Inconsistent with `list` command, breaks user's mental model of paper numbering
-- **Decision**: Not chosen - user explicitly wants paper ID sorting for consistency
+- **Decision**: Not chosen - paper ID sorting maintains consistency across all commands
 
 ## Open Questions
 
-- [x] Should web search be default or fallback? → **Default** (user decision)
+- [x] Should Google search be default or fallback? → **Check credentials, use Google if configured** (user decision)
 - [x] How should results be sorted? → **By paper ID** (user decision)
-- [x] Environment variable name and values? → **USE_WEB_SEARCH with yes/no** (user decision)
-- [ ] What should `candidate_limit` be for web search? (Web search may return fewer results than ArXiv keyword search)
-- [ ] Should we add logging to show which search method was used? (helpful for debugging)
-- [ ] Should we cache web search results to avoid repeated queries? (could improve performance)
+- [x] Environment variable names? → **GOOGLE_SEARCH_API_KEY and GOOGLE_SEARCH_ENGINE_ID** (already implemented)
+- [x] Number of papers to retrieve from Google? → **10 papers (single API call)** (user decision)
+- [x] Fall back to ArXiv API on Google failure? → **No, raise error** (user decision)
+- [x] Should we add logging? → **Yes, log which search method is used** (user decision)
+- [x] Version number handling? → **Keep versions, deduplicate by choosing latest** (user decision)
+- [x] Should we cache Google search results to avoid repeated queries? (could improve performance and reduce quota usage)  → **No, will consider as a future enhancment**
+- [x] Should we expose the number of Google results (10) as a configuration option? (currently hardcoded)  → **No, that might require multiple API calls and we expect google to be good at finding the best options. User can always try with a more specific query**
 
 ---
 
 ## Notes
 
-This design addresses the immediate issue with ArXiv API keyword search while improving overall search quality. The environment variable provides flexibility for users in different situations (quotas, regional restrictions, debugging).
+This design addresses the immediate issue with ArXiv API keyword search while improving overall search quality. The automatic fallback based on credential configuration provides a smooth user experience - users with Google API access get better results, while users without credentials still get working (though lower quality) search via ArXiv API.
 
 The consistent sorting by paper ID ensures that paper numbering remains predictable across `find`, `list`, and other commands, maintaining user's mental model of the system.
+
+The version handling strategy (keeping versions, deduplicating by choosing latest) ensures we get the most recent version of papers while respecting version-specific search intent.
+
+The decision to use a single Google API call (10 results) balances result quality with quota efficiency. Users with the free tier get 100 queries/day, so each search uses 1% of daily quota.
