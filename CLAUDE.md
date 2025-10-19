@@ -75,9 +75,9 @@ uv add --group dev <package-name>
 The system is built around a state machine-driven workflow with a pipeline architecture for paper processing:
 
 ### Core Data Flow
-1. **Search & Metadata** (`arxiv_downloader.py`) - ArXiv API integration for searching and retrieving paper metadata
+1. **Search & Metadata** (`arxiv_downloader.py`, `google_search.py`) - Google Custom Search (primary) or ArXiv API (fallback) for searching and retrieving paper metadata
 2. **Download** (`arxiv_downloader.py`) - PDF download and local storage management
-3. **Text Extraction** (`pdf_image_extractor.py`) - Extract text and images from PDFs using PyMuPDF
+3. **Text Extraction** (`vector_store.py`) - Extract text from PDFs using PyMuPDF4LLM
 4. **Indexing** (`vector_store.py`) - Dual ChromaDB instances (content and summary indexes) for semantic search
 5. **Summarization** (`summarizer.py`) - LLM-powered paper summarization with versioned prompts
 6. **Workflow Orchestration** (`workflow.py`) - LlamaIndex workflow for research assistant operations
@@ -93,6 +93,7 @@ The system is built around a state machine-driven workflow with a pipeline archi
 - **`PromptManager`** (`prompt.py`) - Template-based prompt system with variable substitution from markdown files
 - **Dual Vector Stores** (`vector_store.py`) - Separate ChromaDB instances for content and summary indexes
 - **Model Management** (`models.py`) - Centralized LLM configuration with caching
+- **Google Search Integration** (`google_search.py`) - Google Custom Search API for paper discovery with ArXiv ID extraction and version handling
 - **Paper Management** (`paper_manager.py`) - Utilities for resolving paper references (by number or ArXiv ID) and loading summaries
 - **Paper Removal** (`paper_removal.py`) - Remove papers from all storage locations including vector indexes
 - **Result Storage** (`result_storage.py`) - Save and manage search/research results with LLM-generated titles, open papers in PDF viewer
@@ -123,12 +124,19 @@ The system uses a template-based prompt architecture with:
 ### Environment Configuration
 - `DOC_HOME` - Required environment variable specifying base directory for all data
 - `DEFAULT_MODEL` - Optional, defaults to 'gpt-4o' for LLM operations
+- `DEFAULT_EMBEDDING_MODEL` - Optional, defaults to 'text-embedding-ada-002' for embeddings
+- `MODEL_API_BASE` - Optional, defaults to OpenAI API, can use gateway or local server
+- `OPENAI_API_KEY` - Required for LLM and embedding operations
 - `PDF_VIEWER` - Optional, path to PDF viewer executable (e.g., '/usr/bin/open'). If not set, `open` command displays papers in terminal
+- `GOOGLE_SEARCH_API_KEY` - Optional, enables Google Custom Search for paper discovery (100 queries/day free tier)
+- `GOOGLE_SEARCH_ENGINE_ID` - Optional, specifies Custom Search Engine ID (configured for arxiv.org)
 
 ### Search & Retrieval Strategy
-The system uses a two-stage approach:
-1. **Keyword Search** - ArXiv API search for candidate papers
-2. **Semantic Reranking** - LlamaIndex embeddings for similarity-based ranking, with fallback to text-based Jaccard similarity
+The system uses a multi-stage approach:
+1. **Keyword Search** - Google Custom Search (if credentials configured) or ArXiv API (fallback) for candidate papers
+2. **Version Deduplication** - Automatic selection of latest paper versions from search results
+3. **Semantic Reranking** - LlamaIndex embeddings for similarity-based ranking, with fallback to text-based Jaccard similarity
+4. **Paper ID Sorting** - Final results sorted by ArXiv ID (ascending) for consistent numbering across commands
 
 ### LlamaIndex Integration
 - Uses LlamaIndex workflows for complex multi-step research operations
@@ -282,7 +290,7 @@ cp designs/TEMPLATE.md designs/new-feature.md
 - PDF files are named using ArXiv's default filename convention
 
 ### Error Handling
-- Custom exceptions: `IndexError`, `ImageExtractError`, `ConfigError`, `PromptFileError`, `PromptVarError`
+- Custom exceptions: `IndexError`, `ConfigError`, `PromptFileError`, `PromptVarError`
 - State machine error recovery: transitions to appropriate states on failures
 - Graceful fallbacks for embedding failures (switches to text-based similarity)
 - Robust file existence checking before operations
@@ -309,6 +317,7 @@ The `designs/` directory contains comprehensive design documents:
 - `open-command.md` - PDF viewer integration and terminal fallback - **implemented**
 - `remove-paper-command.md` - Paper removal from all storage locations - **implemented**
 - `research-command.md` - Hierarchical RAG design for deep research - **implemented**
+- `find-command.md` - Enhanced find command with Google Custom Search integration - **implemented**
 - `validate-command.md` - Store validation command design
 - `file-store.md` - Data storage architecture and paper states
 - `user-stores.md` - High-level user operations and workflows

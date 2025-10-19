@@ -60,6 +60,36 @@ export PDF_VIEWER='/usr/bin/open'  # PDF viewer executable (default: terminal vi
 
 **Note**: The `MODEL_API_BASE` variable allows you to use an API gateway or alternative OpenAI-compatible endpoint. This is useful for load balancing, cost management, or using local model servers.
 
+5. **Optional**: Set up Google Custom Search for enhanced paper discovery:
+
+The `find` command uses Google Custom Search as the primary discovery method when credentials are configured. This provides more reliable and higher-quality search results than the ArXiv API keyword search alone. If credentials are not configured, the system automatically falls back to ArXiv API search.
+
+To enable Google Custom Search:
+
+a. Get a Google Custom Search API key:
+   - Go to [Google Cloud Console](https://console.cloud.google.com/)
+   - Create or select a project
+   - Enable the Custom Search API
+   - Create credentials (API key)
+
+b. Create a Custom Search Engine:
+   - Go to [Google Programmable Search Engine](https://programmablesearchengine.google.com/)
+   - Create a new search engine
+   - Configure it to search only `arxiv.org`
+   - Copy the Search Engine ID
+
+c. Set environment variables:
+   ```bash
+   export GOOGLE_SEARCH_API_KEY='your-google-api-key'
+   export GOOGLE_SEARCH_ENGINE_ID='your-search-engine-id'
+   ```
+
+**Free tier**: Google provides 100 queries/day for free. Each `find` command uses 1 query.
+
+**Troubleshooting**:
+- If you see "Google Custom Search failed: API request failed with status code 429", you've exceeded your quota. Wait for the daily reset or upgrade your quota.
+- If credentials are not configured, you'll see "Google Custom Search not configured, using ArXiv API search..." in the logs, and the system will use the legacy ArXiv API search method.
+
 ### Project File Layout
 
 ```
@@ -70,8 +100,8 @@ my-research-assistant/
 │   ├── state_machine.py           # Workflow state management
 │   ├── workflow.py                # LlamaIndex workflow orchestration
 │   ├── arxiv_downloader.py        # ArXiv API integration
-│   ├── pdf_image_extractor.py     # PDF text/image extraction
-│   ├── vector_store.py            # ChromaDB dual vector stores
+│   ├── google_search.py           # Google Custom Search integration
+│   ├── vector_store.py            # ChromaDB dual vector stores & PDF text extraction
 │   ├── summarizer.py              # LLM-powered summarization
 │   ├── paper_manager.py           # Paper resolution utilities
 │   ├── result_storage.py          # Save/manage research results
@@ -171,7 +201,7 @@ Available from any state.
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `find <query>` | Search ArXiv for papers | `find deep learning optimization` |
+| `find <query>` | Search ArXiv for papers (uses Google Custom Search if configured, otherwise ArXiv API) | `find deep learning optimization` |
 | `list` | List all downloaded papers | `list` |
 
 ### Paper Processing Commands
@@ -297,9 +327,11 @@ ArXiv Search → Download PDF → Extract Text → Index Content → Generate Su
 - Integration with OpenAI embeddings and LLMs
 
 #### Search & Retrieval Strategy
-1. **Keyword Search**: ArXiv API for candidate papers
-2. **Semantic Reranking**: LlamaIndex embeddings for similarity ranking
-3. **Hierarchical RAG**: Summary-level search → targeted content retrieval → synthesis
+1. **Keyword Search**: Google Custom Search (if configured) or ArXiv API for candidate papers
+2. **Version Deduplication**: Automatic selection of latest paper versions when multiple versions found
+3. **Semantic Reranking**: LlamaIndex embeddings for similarity ranking
+4. **Paper ID Sorting**: Results sorted by ArXiv ID for consistent numbering across commands
+5. **Hierarchical RAG**: Summary-level search → targeted content retrieval → synthesis
 
 #### Prompt System (`prompt.py`)
 - Template-based markdown prompts in `src/my_research_assistant/prompts/`
@@ -335,7 +367,7 @@ uv run pytest tests/test_state_machine.py  # Specific test file
 
 ### Error Handling
 
-- **Custom exceptions**: `IndexError`, `ImageExtractError`, `ConfigError`, `PromptFileError`, `PromptVarError`
+- **Custom exceptions**: `IndexError`, `ConfigError`, `PromptFileError`, `PromptVarError`
 - **State machine recovery**: Automatic transitions to safe states on failures
 - **Graceful fallbacks**: Text-based similarity when embedding fails
 - **Robust validation**: File existence checks before operations
@@ -370,6 +402,34 @@ uv run pytest tests/test_summarizer.py
 # Run tests for a specific function
 uv run pytest -k test_state_machine_transitions
 ```
+
+### Code Coverage
+
+The project uses `pytest-cov` to measure test coverage. Here are the common commands:
+
+```bash
+# Basic coverage report
+uv run pytest --cov=my_research_assistant
+
+# Coverage with missing lines (recommended)
+uv run pytest --cov=my_research_assistant --cov-report=term-missing
+```
+
+This shows which specific lines aren't covered by tests, making it easy to identify gaps.
+
+```bash
+# Generate HTML coverage report
+uv run pytest --cov=my_research_assistant --cov-report=html
+```
+
+This creates an interactive HTML report in `htmlcov/index.html` that you can open in a browser for detailed coverage analysis.
+
+```bash
+# Combined terminal + HTML reports
+uv run pytest --cov=my_research_assistant --cov-report=term-missing --cov-report=html
+```
+
+This gives you both the terminal summary and the detailed HTML report.
 
 ### Adding Dependencies
 

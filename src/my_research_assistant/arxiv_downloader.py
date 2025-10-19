@@ -4,6 +4,7 @@ import os
 import datetime
 import logging
 import json
+import re
 from typing import Optional
 from pydantic import BaseModel
 import arxiv
@@ -212,6 +213,122 @@ def download_paper(paper_metadata: PaperMetadata, file_locations=None) -> str:
     return local_pdf_path
 
 
+def _deduplicate_arxiv_ids(arxiv_ids: list[str]) -> list[str]:
+    """
+    Deduplicate arXiv IDs by choosing the latest version when multiple versions exist.
+
+    When multiple versions of the same paper are found (e.g., '2107.03374', '2107.03374v1',
+    '2107.03374v2'), this function keeps only the latest version. IDs without a version
+    number are treated as v0 (earliest version).
+
+    Parameters
+    ----------
+    arxiv_ids : list[str]
+        List of arXiv paper IDs, potentially with duplicates and multiple versions
+
+    Returns
+    -------
+    list[str]
+        Deduplicated list of arXiv IDs, containing only the latest version of each paper
+
+    Examples
+    --------
+    >>> _deduplicate_arxiv_ids(['2107.03374', '2107.03374v1', '2107.03374v2'])
+    ['2107.03374v2']
+
+    >>> _deduplicate_arxiv_ids(['2308.03873', '2308.03873', '2412.19437v1'])
+    ['2308.03873', '2412.19437v1']
+    """
+    if not arxiv_ids:
+        return []
+
+    # Pattern to extract base ID and version number
+    # Modern IDs: YYMM.NNNNN or YYMM.NNNNNvN
+    # Legacy IDs: archive-name/YYMMNNN (no version support)
+    version_pattern = re.compile(r'^(.+?)(?:v(\d+))?$')
+
+    # Group IDs by base ID
+    id_groups: dict[str, list[tuple[str, int]]] = {}
+
+    for arxiv_id in arxiv_ids:
+        match = version_pattern.match(arxiv_id)
+        if match:
+            base_id = match.group(1)
+            version_str = match.group(2)
+            version_num = int(version_str) if version_str else 0
+
+            if base_id not in id_groups:
+                id_groups[base_id] = []
+            id_groups[base_id].append((arxiv_id, version_num))
+
+    # For each group, keep only the ID with the highest version number
+    deduplicated = []
+    for base_id, versions in id_groups.items():
+        # Sort by version number (highest first), then by full ID for stability
+        versions.sort(key=lambda x: (-x[1], x[0]))
+        latest_id = versions[0][0]
+        deduplicated.append(latest_id)
+
+    return deduplicated
+
+
+def _google_search_arxiv_papers(query: str) -> list[PaperMetadata]:
+    """
+    Search for papers using Google Custom Search + ArXiv API.
+
+    This function performs a Google Custom Search to find ArXiv papers, deduplicates
+    the results (choosing the latest version when multiple versions exist), and
+    fetches full metadata from the ArXiv API.
+
+    Parameters
+    ----------
+    query : str
+        User's search query
+
+    Returns
+    -------
+    list[PaperMetadata]
+        Papers found via Google search (up to 10), with full metadata from ArXiv API
+
+    Raises
+    ------
+    Exception
+        If Google search fails or if all ArXiv API metadata fetches fail
+    """
+    from .google_search import google_search_arxiv
+
+    # Call Google search to get up to 10 paper IDs
+    paper_ids = google_search_arxiv(query, k=10)
+
+    # Return early if no results
+    if not paper_ids:
+        return []
+
+    # Deduplicate by choosing latest version
+    deduplicated_ids = _deduplicate_arxiv_ids(paper_ids)
+
+    # Fetch metadata for each deduplicated ID
+    papers = []
+    failed_ids = []
+
+    for paper_id in deduplicated_ids:
+        try:
+            metadata = get_paper_metadata(paper_id)
+            papers.append(metadata)
+        except Exception as e:
+            logging.warning(f"Failed to fetch metadata for {paper_id}: {e}")
+            failed_ids.append(paper_id)
+
+    # If all metadata fetches failed, raise exception
+    if not papers and deduplicated_ids:
+        raise Exception(
+            f"Failed to fetch metadata for any papers. "
+            f"Attempted IDs: {deduplicated_ids}, all failed."
+        )
+
+    return papers
+
+
 def _arxiv_keyword_search(query:str, max_results:int) -> list[PaperMetadata]:
     """Find all matching papers up to the limit using the arxiv Search APIs.
     """
@@ -227,7 +344,7 @@ def _arxiv_keyword_search(query:str, max_results:int) -> list[PaperMetadata]:
         other_categories: list[str] = [map_category(c, mappings) for c in result.categories
                                       if c != result.primary_category]
         all_categories = [primary] + other_categories
-    
+
         metadata_results.append(PaperMetadata(
             paper_id=paper_id,
             title=result.title,
@@ -245,9 +362,10 @@ def _arxiv_keyword_search(query:str, max_results:int) -> list[PaperMetadata]:
 
 
 def search_arxiv_papers(query:str, k:int=1, candidate_limit:int=50) -> list[PaperMetadata]:
-    """Use _arxiv_keyword_search() to find up to candidate_limit papers matching the query.
+    """Search for papers using Google Custom Search (if configured) or ArXiv API (fallback).
+
     Then, rerank by computing embeddings for each of the search results and compare to the embedding of the original query
-    string, using the LlamaIndex APIs. Return the paper metadata for the k closest matches.
+    string, using the LlamaIndex APIs. Return the paper metadata for the k closest matches, sorted by paper ID.
 
     Parameters
     ----------
@@ -256,18 +374,31 @@ def search_arxiv_papers(query:str, k:int=1, candidate_limit:int=50) -> list[Pape
     k: int
         Maximum number of matches to return after reranking. Defaults to 1.
     candidate_limit: int
-        Maximum number of candiate papers to return from the initial keyword search on Arxiv..
-    
+        Maximum number of candiate papers to return from the initial keyword search on Arxiv (ArXiv API only).
+
     Returns
     -------
     list[PaperMetadata]
-        Metadata for the k closest matches.
+        Metadata for the k closest matches, sorted by paper ID (ascending).
     """
-    candidates = _arxiv_keyword_search(query, max_results=candidate_limit)
+    # Check if Google Custom Search is configured
+    from . import google_search
+    google_search_available = (
+        google_search.API_KEY is not None and google_search.API_KEY != "" and
+        google_search.SEARCH_ENGINE_ID is not None and google_search.SEARCH_ENGINE_ID != ""
+    )
+
+    if google_search_available:
+        logging.debug("Using Google Custom Search...")
+        candidates = _google_search_arxiv_papers(query)
+    else:
+        logging.debug("Google Custom Search not configured, using ArXiv API search...")
+        candidates = _arxiv_keyword_search(query, max_results=candidate_limit)
     
-    # If we have fewer candidates than requested, just return all of them
+    # If we have fewer candidates than requested, sort by paper ID and return all of them
     if len(candidates) <= k:
-        return candidates
+        # Sort by paper ID (ascending)
+        return sorted(candidates, key=lambda p: p.paper_id)
     
     try:
         # Try to use LlamaIndex embeddings for semantic similarity
@@ -307,13 +438,15 @@ def search_arxiv_papers(query:str, k:int=1, candidate_limit:int=50) -> list[Pape
             cosine_similarity = dot_product / (norm_query * norm_paper)
             similarities.append(cosine_similarity)
         
-        # Sort candidates by similarity (highest first) and return top k
+        # Sort candidates by similarity (highest first) and take top k
         similarity_indices = np.argsort(similarities)[::-1]  # Sort in descending order
         top_k_indices = similarity_indices[:k]
-        
-        # Return the top k candidates based on similarity scores
+
+        # Get the top k candidates based on similarity scores
         reranked_candidates = [candidates[i] for i in top_k_indices]
-        return reranked_candidates
+
+        # Sort by paper ID (ascending) for consistent ordering
+        return sorted(reranked_candidates, key=lambda p: p.paper_id)
         
     except Exception as e:
         # Fallback to simple text-based similarity if embeddings fail
@@ -344,13 +477,15 @@ def search_arxiv_papers(query:str, k:int=1, candidate_limit:int=50) -> list[Pape
             similarity = text_similarity(query_lower, candidate_text.lower())
             similarities.append(similarity)
         
-        # Sort candidates by similarity (highest first) and return top k
+        # Sort candidates by similarity (highest first) and take top k
         similarity_indices = sorted(range(len(similarities)), key=lambda i: similarities[i], reverse=True)
         top_k_indices = similarity_indices[:k]
-        
-        # Return the top k candidates based on similarity scores
+
+        # Get the top k candidates based on similarity scores
         reranked_candidates = [candidates[i] for i in top_k_indices]
-        return reranked_candidates
+
+        # Sort by paper ID (ascending) for consistent ordering
+        return sorted(reranked_candidates, key=lambda p: p.paper_id)
     
 def get_downloaded_paper_ids(file_locations:FileLocations=FILE_LOCATIONS) -> list[str]:
     """Return the list of paper ids for papers whose pdfs have been downloaded"""

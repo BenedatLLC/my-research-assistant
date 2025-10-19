@@ -1,6 +1,6 @@
 # Testing Summary
 
-**Last Updated**: October 12, 2025
+**Last Updated**: October 17, 2025
 
 This document provides an overview of test coverage across the my-research-assistant project. It helps developers understand what's tested, what workflows are covered, and where testing gaps exist.
 
@@ -83,12 +83,27 @@ Tests are organized by component and functionality:
 
 #### ArXiv Integration (`test_search_arxiv_papers.py`)
 - **Coverage**: ArXiv API search and metadata retrieval
+- **Unit Tests**: 3 tests for search functionality
+- **Integration Tests**: 20 tests for Google search integration and routing
 - **Key Scenarios**:
-  - Paper search by keywords
+  - Paper search by keywords (ArXiv API)
+  - Google Custom Search integration
+  - Version deduplication (_deduplicate_arxiv_ids)
+  - Search method routing (Google vs ArXiv)
   - Metadata extraction
   - Error handling for network issues
-- **Mocking**: ✅ Mocks ArXiv API to avoid flaky network tests
-- **Last Modified**: August 2025
+- **Mocking**: ✅ Mocks ArXiv API and Google Search to avoid flaky network tests
+- **Last Modified**: October 2025
+
+#### Google Search Integration (`test_google_search.py`)
+- **Coverage**: Google Custom Search API integration
+- **Unit Tests**: 15 tests for URL parsing and API integration
+- **Key Scenarios**:
+  - ArXiv ID extraction from URLs (modern and legacy formats)
+  - Google Custom Search API calls
+  - Version number handling
+  - Error handling for missing credentials
+- **Last Modified**: October 2025
 
 #### PDF Processing (`test_pdf_image_extractor.py`)
 - **Coverage**: PDF text and image extraction
@@ -203,14 +218,20 @@ Tests are organized by component and functionality:
 These tests verify complete user workflows from start to finish:
 
 ### Flow 1: Find → Summarize → Read
-**Test Files**: `test_workflow.py`, `test_state_machine.py`
+**Test Files**: `test_workflow.py`, `test_state_machine.py`, `test_find_command_e2e.py`
 **Status**: ✅ Passing
+**E2E Tests**: 9 comprehensive end-to-end tests covering enhanced find command
 **Scenarios Covered**:
-1. Find papers by keyword search
-2. Select paper by number from results
+1. Find papers by keyword search (Google Custom Search or ArXiv API fallback)
+2. Select paper by number from results (sorted by paper ID)
 3. Generate summary with LLM
 4. View summary in terminal
 5. State transitions: initial → select-new → summarized
+6. **NEW**: Google Custom Search integration with automatic fallback
+7. **NEW**: Version deduplication (choosing latest version)
+8. **NEW**: Quota exhaustion error handling
+9. **NEW**: Empty result handling
+10. **NEW**: Result limiting and sorting consistency
 
 ### Flow 2: List → View Summary → Open PDF
 **Test Files**: `test_state_machine.py`, `test_open_command.py`
@@ -260,6 +281,76 @@ These tests verify complete user workflows from start to finish:
 2. Re-index all PDFs
 3. Re-index all summaries and notes
 4. Verify index functionality
+
+### Flow 7: Enhanced Find Command Workflows (NEW)
+**Test Files**: `test_find_command_e2e.py`
+**Status**: ✅ Passing (9 E2E tests)
+**Last Updated**: October 17, 2025
+
+This comprehensive E2E test suite covers the enhanced find command implementation with Google Custom Search integration:
+
+#### Test 1: Find → Summarize with Google Search
+- User has Google credentials configured
+- User runs `find transformer attention`
+- System uses Google Custom Search (logged)
+- System displays top 5 papers **sorted by paper ID** (ascending)
+- User runs `summarize 2`
+- System downloads and summarizes paper #2 from sorted results
+- **Expected**: State transitions initial → select-new → summarized
+
+#### Test 2: Find → List → Summary (Sorted by ID)
+- User runs `find DeepSeek V3`
+- System shows results sorted by paper ID
+- User runs `list`
+- Papers displayed in same order (by ID)
+- User runs `summary 1`
+- **Expected**: Consistent paper numbering across find and list commands
+
+#### Test 3: Automatic Fallback to ArXiv Search
+- User does not configure Google credentials (API_KEY or ENGINE_ID missing/empty)
+- User runs `find neural networks`
+- System detects no credentials
+- System logs: "Google Custom Search not configured, using ArXiv API search..."
+- System automatically uses ArXiv API keyword search
+- Results displayed **sorted by paper ID**
+- **Expected**: Backward compatible behavior (same as before enhancement)
+
+#### Test 4: Google Search Quota Exhausted (Error Handling)
+- User has Google credentials configured
+- User runs `find deep learning`
+- Google API returns 429 (quota exhausted)
+- System raises exception with clear message
+- **Expected**: User-friendly error message, no automatic fallback to ArXiv
+
+#### Test 5: Google Search No Results
+- User runs `find xyzabc123nonexistent`
+- Google search returns empty list
+- System returns empty result (success=False, "No papers found")
+- **Expected**: State remains unchanged
+
+#### Test 6: Google Search Version Deduplication
+- Google search returns multiple versions: `["2107.03374", "2107.03374v1", "2107.03374v2", "2308.03873"]`
+- System deduplicates by choosing latest version
+- Only `2107.03374v2` appears in results (not v1 or base ID)
+- **Expected**: Latest version chosen automatically
+
+#### Test 7: Find → Semantic Search Integration
+- User runs `find transformer attention`
+- Papers found and sorted by ID
+- User runs `sem-search query optimization`
+- **Expected**: Query set preserved, papers still available for selection
+
+#### Test 8: Empty Engine ID Fallback
+- User has `GOOGLE_SEARCH_API_KEY` set but `GOOGLE_SEARCH_ENGINE_ID` is empty
+- System detects incomplete credentials
+- System falls back to ArXiv API search
+- **Expected**: Graceful fallback on partial configuration
+
+#### Test 9: Result Limiting with Google Search
+- Google search returns 5 papers
+- User requests k=3 papers
+- System returns only 3 papers (first 3 when sorted by ID)
+- **Expected**: Results properly limited after sorting
 
 ## Testing Gaps and TODOs
 

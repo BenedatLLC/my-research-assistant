@@ -717,7 +717,8 @@ Provide your answer in a clear, well-structured format. Be specific about what t
         try:
             from .arxiv_downloader import download_paper
             from .vector_store import index_file
-            from .summarizer import summarize_paper
+            from .summarizer import summarize_paper, save_summary
+            from .paper_manager import load_paper_summary
 
             # Step 1: Download the paper
             print(f"📥 Downloading paper: '{selected_paper.title}'...")
@@ -729,10 +730,24 @@ Provide your answer in a clear, well-structured format. Be specific about what t
             paper_text = index_file(selected_paper)
             print(f"✅ Paper indexed successfully. Extracted {len(paper_text)} characters of text.")
 
-            # Step 3: Generate summary
-            print(f"📝 Generating summary for: '{selected_paper.title}'...")
-            summary = summarize_paper(paper_text, selected_paper)
-            print("✅ Summary generated successfully!")
+            # Step 3: Check if summary already exists
+            success, existing_summary = load_paper_summary(selected_paper.paper_id, self.workflow.file_locations)
+
+            if success:
+                # Summary already exists - return it
+                print(f"📄 Summary already exists for: '{selected_paper.title}'")
+                print("✅ Using existing summary.")
+                summary = existing_summary
+            else:
+                # Generate new summary
+                print(f"📝 Generating summary for: '{selected_paper.title}'...")
+                summary = summarize_paper(paper_text, selected_paper)
+                print("✅ Summary generated successfully!")
+
+                # Save the summary
+                print(f"💾 Saving summary...")
+                save_summary(summary, selected_paper.paper_id)
+                print("✅ Summary saved successfully!")
 
             # Return an object with the expected attributes
             class ProcessingResult:

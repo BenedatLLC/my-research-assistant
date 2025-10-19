@@ -5,6 +5,7 @@ from my_research_assistant.google_search import (
     google_search_arxiv,
     GoogleSearchNotConfigured
 )
+from my_research_assistant.arxiv_downloader import _deduplicate_arxiv_ids
 
 
 class TestExtractArxivId:
@@ -138,16 +139,89 @@ class TestGoogleSearchArxiv:
         # Remove API keys from environment
         monkeypatch.delenv("GOOGLE_SEARCH_API_KEY", raising=False)
         monkeypatch.delenv("GOOGLE_SEARCH_ENGINE_ID", raising=False)
-        
+
         # Need to reload the module to pick up the None values
         import importlib
         import my_research_assistant.google_search as gs_module
         importlib.reload(gs_module)
-        
+
         query = "test query"
-        with pytest.raises(GoogleSearchNotConfigured) as exc_info:
+        # Use the exception class from the reloaded module
+        with pytest.raises(gs_module.GoogleSearchNotConfigured) as exc_info:
             gs_module.google_search_arxiv(query)
-        
+
         assert "credentials not configured" in str(exc_info.value).lower()
+
+
+class TestDeduplicateArxivIds:
+    """Tests for the _deduplicate_arxiv_ids function"""
+
+    def test_deduplicate_multiple_versions(self):
+        """Test that multiple versions are deduplicated to keep the latest"""
+        ids = ["2107.03374", "2107.03374v1", "2107.03374v2", "2107.03374v10"]
+        result = _deduplicate_arxiv_ids(ids)
+
+        # Should keep only the latest version (v10 is highest)
+        assert result == ["2107.03374v10"]
+
+    def test_deduplicate_exact_duplicates(self):
+        """Test that exact duplicates are removed"""
+        ids = ["2308.03873", "2308.03873", "2412.19437v1"]
+        result = _deduplicate_arxiv_ids(ids)
+
+        # Should have exactly two unique IDs
+        assert len(result) == 2
+        assert "2308.03873" in result
+        assert "2412.19437v1" in result
+
+    def test_deduplicate_mixed_versions(self):
+        """Test mix of versioned and non-versioned IDs"""
+        ids = ["2107.03374", "2308.03873v1", "2412.19437", "2107.03374v2"]
+        result = _deduplicate_arxiv_ids(ids)
+
+        # Should have 3 IDs: latest version of 2107, and the other two
+        assert len(result) == 3
+        assert "2107.03374v2" in result  # Latest version of 2107
+        assert "2308.03873v1" in result
+        assert "2412.19437" in result
+
+    def test_deduplicate_empty_list(self):
+        """Test that empty list returns empty list"""
+        result = _deduplicate_arxiv_ids([])
+        assert result == []
+
+    def test_deduplicate_single_id(self):
+        """Test that single ID is returned unchanged"""
+        ids = ["2107.03374v1"]
+        result = _deduplicate_arxiv_ids(ids)
+        assert result == ["2107.03374v1"]
+
+    def test_deduplicate_legacy_ids(self):
+        """Test that legacy IDs are preserved correctly"""
+        ids = ["hep-th/9901001", "2107.03374", "math.GT/0601001"]
+        result = _deduplicate_arxiv_ids(ids)
+
+        # All should be preserved as they are different papers
+        assert len(result) == 3
+        assert "hep-th/9901001" in result
+        assert "2107.03374" in result
+        assert "math.GT/0601001" in result
+
+    def test_deduplicate_no_version_treated_as_latest(self):
+        """Test that IDs without version are treated as v0 (earliest)"""
+        ids = ["2107.03374", "2107.03374v1"]
+        result = _deduplicate_arxiv_ids(ids)
+
+        # v1 should be kept as it's newer than no version
+        assert result == ["2107.03374v1"]
+
+    def test_deduplicate_preserves_order_by_base_id(self):
+        """Test that deduplication preserves some consistent ordering"""
+        ids = ["2412.19437v1", "2107.03374v2", "2308.03873"]
+        result = _deduplicate_arxiv_ids(ids)
+
+        # Should have all 3 as they're different papers
+        assert len(result) == 3
+        assert set(result) == set(ids)
 
 

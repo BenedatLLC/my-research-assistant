@@ -39,4 +39,5 @@ my_research_assistant = ["prompts/*.md"]
 dev = [
     "pytest>=8.4.1",
     "pytest-asyncio>=1.1.0",
+    "pytest-cov>=7.0.0",
 ]
