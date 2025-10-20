@@ -27,3 +27,11 @@ A better error would be:
 ```
 ❌ An unexpected error occurred when generating summary. Running with logging for more details.
 ```
+
+This is a pretty good error:
+```
+❌ Improve failed: Summary improvement failed: An error occurred during summarizing: Error code: 401 - {'error':
+{'message': 'Incorrect API key provided: sk-U10C2*************0yZg. You can find your API key at
+https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'param': None, 'code':
+'invalid_api_key'}}
+```

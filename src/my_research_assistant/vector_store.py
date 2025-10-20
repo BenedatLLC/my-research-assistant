@@ -1071,9 +1071,8 @@ def rebuild_index(file_locations:FileLocations=FILE_LOCATIONS):
 def main():
     """Entry point for the rebuild-index script."""
     try:
-        rebuild_index()
+        rebuild_index(FILE_LOCATIONS)
         print("Rebuild index completed successfully!")
     except Exception as e:
         print(f"Error rebuilding index: {e}")
         exit(1)
-

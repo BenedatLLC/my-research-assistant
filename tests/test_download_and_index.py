@@ -339,33 +339,179 @@ def test_parse_file_caching(temp_file_locations):
     from my_research_assistant.arxiv_downloader import get_paper_metadata, download_paper
     import my_research_assistant.vector_store as vs
     from os.path import exists, join
-    
+
     # Override the imported FILE_LOCATIONS
     vs.FILE_LOCATIONS = temp_file_locations
-    
+
     # Download a paper for testing
     paper_id = '2503.22738'
     md = get_paper_metadata(paper_id)
     download_paper(md, temp_file_locations)
     assert exists(md.get_local_pdf_path(temp_file_locations))
-    
+
     # Verify the cache file doesn't exist yet
     temp_file_locations.ensure_extracted_paper_text_dir()
     cache_path = join(temp_file_locations.extracted_paper_text_dir, f"{paper_id}.md")
     assert not exists(cache_path), "Cache file should not exist initially"
-    
+
     # First call to parse_file should create the cache
     paper_text1 = vs.parse_file(md, temp_file_locations)
     assert len(paper_text1) > 0, "Should extract text from PDF"
     assert exists(cache_path), "Cache file should be created after first parse"
-    
+
     # Second call should load from cache (should be identical content)
     paper_text2 = vs.parse_file(md, temp_file_locations)
     assert paper_text1 == paper_text2, "Second call should return identical text from cache"
     assert len(paper_text2) > 0, "Should load cached text"
-    
+
     # Verify cache file contains the expected content
     with open(cache_path, 'r', encoding='utf-8') as f:
         cached_content = f.read()
     assert cached_content == paper_text1, "Cache file should contain the extracted text"
+
+
+def test_index_summary_basic(temp_file_locations):
+    """Test basic summary indexing functionality."""
+    from my_research_assistant.arxiv_downloader import get_paper_metadata
+    import my_research_assistant.vector_store as vs
+    from os.path import join
+
+    vs.FILE_LOCATIONS = temp_file_locations
+
+    # Get paper metadata
+    md = get_paper_metadata(EXAMPLE_PAPER_ID)
+
+    # Create a summary file
+    temp_file_locations.ensure_summaries_dir()
+    summary_path = join(temp_file_locations.summaries_dir, f"{EXAMPLE_PAPER_ID}.md")
+    summary_content = """# ShieldAgent Summary
+
+This paper introduces ShieldAgent, a framework for agent safety.
+
+## Main Contributions
+- Verifiable safety policy reasoning
+- Practical implementation
+"""
+    with open(summary_path, 'w') as f:
+        f.write(summary_content)
+
+    # Index the summary
+    vs.index_summary(md, temp_file_locations)
+
+    # Verify the summary index was created
+    assert vs.SUMMARY_INDEX is not None
+
+    # Verify we can retrieve the summary
+    retriever = vs.SUMMARY_INDEX.as_retriever()
+    results = retriever.retrieve("verifiable safety policy")
+
+    assert len(results) > 0, "Should find results in indexed summary"
+
+    # Verify metadata
+    found_summary = False
+    for result in results:
+        if hasattr(result, 'metadata'):
+            metadata = result.metadata
+            if metadata.get('paper_id') == EXAMPLE_PAPER_ID and metadata.get('source_type') == 'summary':
+                found_summary = True
+                assert metadata['title'] == "ShieldAgent: Shielding Agents via Verifiable Safety Policy Reasoning"
+                assert 'authors' in metadata
+                break
+
+    assert found_summary, "Should find summary with proper metadata"
+
+
+def test_index_summary_idempotency(temp_file_locations):
+    """Test that index_summary is idempotent - indexing twice doesn't duplicate."""
+    from my_research_assistant.arxiv_downloader import get_paper_metadata
+    import my_research_assistant.vector_store as vs
+    from os.path import join
+
+    vs.FILE_LOCATIONS = temp_file_locations
+
+    md = get_paper_metadata(EXAMPLE_PAPER_ID)
+
+    # Create a summary file
+    temp_file_locations.ensure_summaries_dir()
+    summary_path = join(temp_file_locations.summaries_dir, f"{EXAMPLE_PAPER_ID}.md")
+    with open(summary_path, 'w') as f:
+        f.write("# Summary\nThis paper discusses agent safety mechanisms.")
+
+    # Index the summary twice
+    vs.index_summary(md, temp_file_locations)
+    vs.index_summary(md, temp_file_locations)  # Second call should skip
+
+    # Verify only one summary was indexed (check by searching)
+    retriever = vs.SUMMARY_INDEX.as_retriever(similarity_top_k=20)
+    results = retriever.retrieve("agent safety")
+
+    # Count results with summary source_type for this paper
+    summary_count = sum(1 for r in results
+                       if hasattr(r, 'metadata')
+                       and r.metadata.get('paper_id') == EXAMPLE_PAPER_ID
+                       and r.metadata.get('source_type') == 'summary')
+
+    assert summary_count > 0, "Should have summary indexed"
+
+
+def test_index_summary_missing_file(temp_file_locations):
+    """Test that index_summary raises error when summary file doesn't exist."""
+    from my_research_assistant.arxiv_downloader import get_paper_metadata
+    import my_research_assistant.vector_store as vs
+
+    vs.FILE_LOCATIONS = temp_file_locations
+
+    md = get_paper_metadata(EXAMPLE_PAPER_ID)
+
+    # Don't create summary file - should raise error
+    with pytest.raises(vs.IndexError) as exc_info:
+        vs.index_summary(md, temp_file_locations)
+
+    assert "Summary file not found" in str(exc_info.value)
+
+
+def test_index_summary_metadata_validation(temp_file_locations):
+    """Test that summaries have all required metadata fields."""
+    from my_research_assistant.arxiv_downloader import get_paper_metadata
+    import my_research_assistant.vector_store as vs
+    from os.path import join
+
+    vs.FILE_LOCATIONS = temp_file_locations
+
+    md = get_paper_metadata(EXAMPLE_PAPER_ID)
+
+    # Create summary
+    temp_file_locations.ensure_summaries_dir()
+    summary_path = join(temp_file_locations.summaries_dir, f"{EXAMPLE_PAPER_ID}.md")
+    with open(summary_path, 'w') as f:
+        f.write("# Test Summary\nContent for metadata testing.")
+
+    # Index the summary
+    vs.index_summary(md, temp_file_locations)
+
+    # Retrieve and check metadata
+    retriever = vs.SUMMARY_INDEX.as_retriever()
+    results = retriever.retrieve("metadata testing")
+
+    found_correct_metadata = False
+    for result in results:
+        if hasattr(result, 'metadata'):
+            metadata = result.metadata
+            if (metadata.get('paper_id') == EXAMPLE_PAPER_ID and
+                metadata.get('source_type') == 'summary'):
+                # Verify all required fields are present
+                assert 'title' in metadata
+                assert 'authors' in metadata
+                assert 'categories' in metadata
+                assert 'file_path' in metadata
+
+                # Verify correct values
+                assert metadata['title'] == "ShieldAgent: Shielding Agents via Verifiable Safety Policy Reasoning"
+                assert metadata['source_type'] == 'summary'
+                expected_path = f'summaries/{EXAMPLE_PAPER_ID}.md'
+                assert metadata['file_path'] == expected_path
+                found_correct_metadata = True
+                break
+
+    assert found_correct_metadata, "Should find summary with all required metadata"
 

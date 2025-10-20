@@ -489,6 +489,8 @@ def search_arxiv_papers(query:str, k:int=1, candidate_limit:int=50) -> list[Pape
     
 def get_downloaded_paper_ids(file_locations:FileLocations=FILE_LOCATIONS) -> list[str]:
     """Return the list of paper ids for papers whose pdfs have been downloaded"""
+    if not os.path.exists(file_locations.pdfs_dir):
+        return []
     return [filename[:-len('.pdf')]
             for filename in os.listdir(file_locations.pdfs_dir)
             if filename.endswith('.pdf')]
