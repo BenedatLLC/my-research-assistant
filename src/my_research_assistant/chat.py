@@ -469,9 +469,7 @@ Use 'status' for detailed state information.
     
     async def process_list_command(self):
         """Process a list command to show all downloaded papers with pagination."""
-        import math
-        from rich.table import Table
-        from rich.prompt import Prompt
+        from .pagination import TablePaginator
 
         try:
             # Use the workflow to get the list of papers
@@ -495,70 +493,16 @@ Use 'status' for detailed state information.
             self.console.print("📋 [bold blue]Downloaded Papers[/bold blue]\n")
 
             papers = result.papers
-            papers_per_page = 10  # Show 10 papers per page
             total_papers = len(papers)
-            total_pages = math.ceil(total_papers / papers_per_page) if total_papers > 0 else 1
 
-            current_page = 1
-
-            while True:
-                # Calculate start and end indices for current page
-                start_idx = (current_page - 1) * papers_per_page
-                end_idx = min(start_idx + papers_per_page, total_papers)
-                current_papers = papers[start_idx:end_idx]
-
-                # Create table for current page
-                table = Table(title=f"Page {current_page}/{total_pages}")
-                table.add_column("#", style="cyan", no_wrap=True, width=4)
-                table.add_column("Paper ID", style="yellow", no_wrap=True, width=14)
-                table.add_column("Title", style="white", width=55)
-                table.add_column("Authors", style="green", width=25)
-                table.add_column("Published", style="blue", no_wrap=True, width=10)
-
-                # Add papers to table
-                for i, paper in enumerate(current_papers, start=start_idx + 1):
-                    # Truncate long titles and author lists for display
-                    title = paper.title if len(paper.title) <= 57 else paper.title[:54] + "..."
-                    authors = ", ".join(paper.authors[:2])
-                    if len(paper.authors) > 2:
-                        authors += f" +{len(paper.authors) - 2} more"
-                    if len(authors) > 27:
-                        authors = authors[:24] + "..."
-
-                    published_date = paper.published.strftime('%Y-%m-%d')
-
-                    table.add_row(
-                        str(i),
-                        paper.paper_id,
-                        title,
-                        authors,
-                        published_date
-                    )
-
-                # Display the table
-                self.console.print(table)
-
-                # Show pagination info and controls
-                if total_pages > 1:
-                    pagination_text = f"\n📄 Page {current_page} of {total_pages} • Total: {total_papers} papers"
-                    self.console.print(pagination_text)
-
-                    if current_page < total_pages:
-                        self.console.print("[dim]Press Enter for next page, or type any other key to exit[/dim]")
-                        user_input = Prompt.ask("", console=self.console, default="")
-                        if user_input != "":
-                            break
-                        current_page += 1
-                    else:
-                        self.console.print("[dim]End of list[/dim]")
-                        break
-                else:
-                    # Single page, just show total
-                    total_text = f"\n📊 Total: {total_papers} paper{'s' if total_papers != 1 else ''}"
-                    self.console.print(total_text)
-                    break
+            # Use TablePaginator for single-keypress pagination
+            paginator = TablePaginator(self.console)
+            paginator.paginate_papers(papers)
 
             # Show summary information and next steps
+            total_text = f"\n📊 Total: {total_papers} paper{'s' if total_papers != 1 else ''}"
+            self.console.print(total_text)
+
             self.console.print(f"\n💾 **Storage Locations:**")
             self.console.print(f"• PDFs: `{self.workflow_runner.workflow.file_locations.pdfs_dir}`")
             self.console.print(f"• Summaries: `{self.workflow_runner.workflow.file_locations.summaries_dir}`")
@@ -958,10 +902,6 @@ Use 'status' for detailed state information.
         """Process an open command to view paper content."""
         from .paper_manager import parse_paper_argument_enhanced
         from .result_storage import open_paper_content
-        from rich.markdown import Markdown
-        from rich.panel import Panel
-        from rich.prompt import Prompt
-        import math
 
         try:
             # Parse paper argument using enhanced function
@@ -990,48 +930,20 @@ Use 'status' for detailed state information.
 
             elif action_type == "markdown":
                 # PDF_VIEWER not set - display markdown with pagination
+                from .pagination import TextPaginator
+
                 self.console.print("⚠️ [yellow]WARNING: PDF_VIEWER environment variable is not set, Rendering in terminal[/yellow]\n")
 
                 # Split content into lines for pagination
                 lines = content.split('\n')
-                # Use 80% of terminal height for pagination
-                terminal_height = self.console.height
-                lines_per_page = int(terminal_height * 0.8)
-                total_lines = len(lines)
-                total_pages = math.ceil(total_lines / lines_per_page) if total_lines > 0 else 1
 
-                current_page = 1
-
-                while True:
-                    # Calculate start and end indices for current page
-                    start_idx = (current_page - 1) * lines_per_page
-                    end_idx = min(start_idx + lines_per_page, total_lines)
-                    page_lines = lines[start_idx:end_idx]
-                    page_content = '\n'.join(page_lines)
-
-                    # Display the page in a panel with markdown rendering
-                    panel = Panel(
-                        Markdown(page_content),
-                        title=f"📝 {paper.title if hasattr(paper, 'title') else f'Paper {paper.paper_id}'}",
-                        border_style="green"
-                    )
-                    self.console.print(panel)
-
-                    # Show pagination info
-                    pagination_text = f"\n📄 Page {current_page} of {total_pages}"
-                    self.console.print(pagination_text)
-
-                    if current_page < total_pages:
-                        self.console.print("[dim]Press Enter for next page, or type any other key to exit[/dim]")
-                        user_input = Prompt.ask("", console=self.console, default="")
-                        if user_input != "":
-                            break
-                        current_page += 1
-                    else:
-                        break
+                # Use TextPaginator for single-keypress pagination
+                paginator = TextPaginator(self.console)
+                title = f"📝 {paper.title if hasattr(paper, 'title') else f'Paper {paper.paper_id}'}"
+                paginator.paginate_lines(lines, title=title)
 
                 # Add simplified content to history
-                history_content = f"Displayed paper content for {paper.paper_id} ({total_pages} pages)"
+                history_content = f"Displayed paper content for {paper.paper_id} with pagination"
                 self.add_to_history("assistant", history_content)
 
             # Update state machine according to design

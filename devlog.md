@@ -9,6 +9,34 @@
 * chat interface with intent detection
 * Handle "old-style" arxiv ids that contain a "/"
 
+## Monday Oct 21, 2025
+
+### Improved Pagination with Single-Key Input
+
+Replaced line-buffered pagination (requiring Enter key) with immediate single-keypress pagination for `list` and `open` commands.
+
+**What was added:**
+- New `pagination.py` module with `getch()` for single-character input using termios
+- `TablePaginator` class for row-aware table pagination (list command)
+- `TextPaginator` class for line-aware markdown pagination (open command)
+- Terminal-aware sizing: ~80% initial display, ~45% scroll increments
+- Graceful fallback when terminal doesn't support raw mode
+- No mid-row breaks for table rows
+- Cumulative display (content remains visible between scrolls)
+
+**Key improvements:**
+- SPACE key adds more content without requiring Enter
+- Any other key exits immediately back to command mode
+- Auto-exit when reaching end of content
+- Terminal height detection for responsive pagination
+- Better UX - matches user expectations for pagination controls
+
+**Test coverage:**
+- 38 tests: 33 unit tests + 5 integration tests
+- All tests passing (286 total in test suite)
+
+**Original user prompt:** "I'd like to change the pagination logic we have with the `list` and `open` commands. Currently, it is a little awkward... you actually have to enter the key AND enter to do that. This is because it is reading the buffered input in line mode. Is it possible to just read a single character?"
+
 ## Friday Oct 17, 2025
 
 ### Enhanced Find Command with Google Custom Search

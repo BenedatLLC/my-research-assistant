@@ -1,6 +1,6 @@
 # Testing Summary
 
-**Last Updated**: October 17, 2025
+**Last Updated**: October 21, 2025
 
 This document provides an overview of test coverage across the my-research-assistant project. It helps developers understand what's tested, what workflows are covered, and where testing gaps exist.
 
@@ -41,6 +41,22 @@ Tests are organized by component and functionality:
   - Integration with state machine
   - User input handling
 - **Last Modified**: September 2025
+
+#### Pagination (`test_pagination.py`, `test_pagination_integration.py`)
+- **Coverage**: 38 tests for single-key pagination
+- **API-Level**: ✅ Yes - tests pagination classes with mocked terminal I/O
+- **Key Scenarios**:
+  - **getch() function** (7 tests): Single-character input, Ctrl+C handling, terminal restoration, platform fallback
+  - **Paginator base class** (8 tests): Terminal size calculations, small terminal handling, edge cases
+  - **TablePaginator** (9 tests): Row-aware table pagination, space key scrolling, auto-exit, no mid-row breaks
+  - **TextPaginator** (10 tests): Line-aware text pagination, markdown preservation, panel formatting
+  - **Integration** (4 tests): List command pagination, keyboard interrupts, error handling
+- **Features**:
+  - Single-keypress input using termios (Unix/macOS)
+  - Terminal-aware sizing (~80% initial display, ~45% scroll increments)
+  - Cumulative display (content remains visible)
+  - Graceful fallback when terminal doesn't support raw mode
+- **Last Modified**: October 2025
 
 #### Workflow Orchestration (`test_workflow.py`)
 - **Coverage**: LlamaIndex workflow operations
