@@ -48,7 +48,10 @@ The workflow system is designed to work with multiple interface types:
 from pydantic import Field
 from typing import List, Optional
 import os
+import logging
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 from llama_index.core.workflow import (
     Event,
     Workflow,
@@ -213,12 +216,12 @@ class ResearchAssistantWorkflow(Workflow):
                     papers = search_arxiv_papers(query, k=5)
                 except Exception as e:
                     # Immediately handle search API exceptions
-                    self.interface.show_error(f"Search failed: {str(e)}")
-                    return StopEvent(result=f"Search failed: {str(e)}")
+                    self.interface.show_error(f"❌ Search failed: {str(e)}")
+                    return StopEvent(result=f"❌ Search failed: {str(e)}")
             
             if not papers:
-                self.interface.show_error(f"No papers found matching '{query}'. Please try a different search term.")
-                return StopEvent(result="No papers found")
+                self.interface.show_error(f"❌ No papers found matching '{query}'. Please try a different search term.")
+                return StopEvent(result="❌ No papers found")
             
             # IMPORTANT ORDERING FIX:
             # The chat state machine stores last_query_set as a list of paper_ids sorted ascending.
@@ -236,8 +239,8 @@ class ResearchAssistantWorkflow(Workflow):
             
             return SearchResultsEvent(papers=papers, query=query)
         except Exception as e:
-            self.interface.show_error(f"Search failed: {str(e)}")
-            return StopEvent(result=f"Search failed: {str(e)}")
+            self.interface.show_error(f"❌ Search failed: {str(e)}")
+            return StopEvent(result=f"❌ Search failed: {str(e)}")
     
     
     @step
@@ -245,8 +248,8 @@ class ResearchAssistantWorkflow(Workflow):
         """Step 2: Handle user paper selection or refined search"""
         try:
             if not ev.papers:
-                self.interface.show_error("No papers available to select")
-                return StopEvent(result="No papers available to select")
+                self.interface.show_error("❌ No papers available to select")
+                return StopEvent(result="❌ No papers available to select")
             
             # In interactive mode, this would get user input
             # For now, auto-select first paper for single results
@@ -261,8 +264,8 @@ class ResearchAssistantWorkflow(Workflow):
                 return StopEvent(result="Multiple papers found - awaiting selection")
                 
         except Exception as e:
-            self.interface.show_error(f"Paper selection failed: {str(e)}")
-            return StopEvent(result=f"Paper selection failed: {str(e)}")
+            self.interface.show_error(f"❌ Paper selection failed: {str(e)}")
+            return StopEvent(result=f"❌ Paper selection failed: {str(e)}")
     
     @step
     async def download_paper_step(self, ctx: Context, ev: PaperSelectedEvent) -> PaperDownloadedEvent | StopEvent:
@@ -276,8 +279,8 @@ class ResearchAssistantWorkflow(Workflow):
             self.interface.show_success(f"Paper downloaded successfully to: {local_path}")
             return PaperDownloadedEvent(paper=paper, local_path=local_path)
         except Exception as e:
-            self.interface.show_error(f"Download failed: {str(e)}")
-            return StopEvent(result=f"Download failed: {str(e)}")
+            self.interface.show_error(f"❌ Download failed: {str(e)}")
+            return StopEvent(result=f"❌ Download failed: {str(e)}")
     
     @step
     async def index_paper_step(self, ctx: Context, ev: PaperDownloadedEvent) -> PaperIndexedEvent | StopEvent:
@@ -291,8 +294,8 @@ class ResearchAssistantWorkflow(Workflow):
             self.interface.show_success(f"Paper indexed successfully. Extracted {len(paper_text)} characters of text.")
             return PaperIndexedEvent(paper=paper, paper_text=paper_text)
         except Exception as e:
-            self.interface.show_error(f"Indexing failed: {str(e)}")
-            return StopEvent(result=f"Indexing failed: {str(e)}")
+            self.interface.show_error(f"❌ Indexing failed: {str(e)}")
+            return StopEvent(result=f"❌ Indexing failed: {str(e)}")
     
     @step
     async def generate_summary_step(self, ctx: Context, ev: PaperIndexedEvent) -> SummaryGeneratedEvent | StopEvent:
@@ -310,8 +313,8 @@ class ResearchAssistantWorkflow(Workflow):
             
             return SummaryGeneratedEvent(paper=paper, summary=summary, paper_text=paper_text)
         except Exception as e:
-            self.interface.show_error(f"Summary generation failed: {str(e)}")
-            return StopEvent(result=f"Summary generation failed: {str(e)}")
+            self.interface.show_error(f"❌ Summary generation failed: {str(e)}")
+            return StopEvent(result=f"❌ Summary generation failed: {str(e)}")
     
     @step
     async def save_summary_step(self, ctx: Context, ev: SummaryGeneratedEvent) -> StopEvent:
@@ -345,8 +348,8 @@ You can now find another paper or start a new search."""
             self.interface.render_content(completion_message, "markdown", "✅ Success")
             return StopEvent(result=f"Summary saved successfully: {file_path}")
         except Exception as e:
-            self.interface.show_error(f"Summary save failed: {str(e)}")
-            return StopEvent(result=f"Summary save failed: {str(e)}")
+            self.interface.show_error(f"❌ Summary save failed: {str(e)}")
+            return StopEvent(result=f"❌ Summary save failed: {str(e)}")
 
     # === SEMANTIC SEARCH WORKFLOW ===
     
@@ -369,15 +372,15 @@ You can now find another paper or start a new search."""
                 )
             
             if not results:
-                self.interface.show_error(f"No results found in local index for '{query}'. Try adding more papers or using different search terms.")
-                return StopEvent(result=f"No results found for '{query}'")
+                self.interface.show_error(f"❌ No results found in local index for '{query}'. Try adding more papers or using different search terms.")
+                return StopEvent(result=f"❌ No results found for '{query}'")
             
             self.interface.show_success(f"Found {len(results)} relevant chunks from {len(set(r.paper_id for r in results))} paper(s)")
             
             return SemanticSearchResultsEvent(results=results, query=query)
         except Exception as e:
-            self.interface.show_error(f"Semantic search failed: {str(e)}")
-            return StopEvent(result=f"Semantic search failed: {str(e)}")
+            self.interface.show_error(f"❌ Semantic search failed: {str(e)}")
+            return StopEvent(result=f"❌ Semantic search failed: {str(e)}")
     
     @step
     async def summarize_search_results(self, ctx: Context, ev: SemanticSearchResultsEvent) -> StopEvent:
@@ -491,6 +494,7 @@ class WorkflowRunner:
     
     async def start_add_paper_workflow(self, query: str) -> QueryResult:
         """Start the add paper workflow with a search query"""
+        logger.info(f"Starting add paper workflow with query: '{query[:100]}...'")
         handler = self.workflow.run(query=query)
 
         found_papers = None
@@ -500,6 +504,7 @@ class WorkflowRunner:
             # Capture papers when search results are found
             if isinstance(event, SearchResultsEvent):
                 found_papers = event.papers
+                logger.info(f"Found {len(found_papers)} papers from search")
 
             if isinstance(event, StopEvent):
                 result_message = event.result
@@ -508,6 +513,7 @@ class WorkflowRunner:
         # Create structured result
         if found_papers:
             paper_ids = [paper.paper_id for paper in found_papers]
+            logger.info(f"Add paper workflow completed successfully: {len(found_papers)} papers")
             return QueryResult(
                 success=True,
                 papers=found_papers,
@@ -516,6 +522,7 @@ class WorkflowRunner:
                 content=None
             )
         else:
+            logger.warning("Add paper workflow found no papers")
             return QueryResult(
                 success=False,
                 papers=[],
@@ -526,6 +533,7 @@ class WorkflowRunner:
     
     async def start_semantic_search_workflow(self, query: str) -> QueryResult:
         """Start the enhanced semantic search workflow with RAG summarization"""
+        logger.info(f"Starting semantic search workflow with query: '{query[:100]}...'")
         try:
             # Directly call the semantic search methods
             from .vector_store import search_index
@@ -543,6 +551,7 @@ class WorkflowRunner:
             )
 
             if not results:
+                logger.warning(f"Semantic search found no results for query: '{query[:100]}...''")
                 no_results_message = f"""❌ **No relevant passages found**
 
 I couldn't find any passages in the indexed papers that are relevant to your query: "{query}"
@@ -564,7 +573,9 @@ I couldn't find any passages in the indexed papers that are relevant to your que
                     content=no_results_message
                 )
 
-            print(f"✅ Found {len(results)} relevant chunks from {len(set(r.paper_id for r in results))} paper(s)")
+            num_papers = len(set(r.paper_id for r in results))
+            logger.info(f"Semantic search found {len(results)} chunks from {num_papers} papers")
+            print(f"✅ Found {len(results)} relevant chunks from {num_papers} paper(s)")
 
             # Group results by paper
             papers_dict = {}
@@ -692,6 +703,7 @@ Provide your answer in a clear, well-structured format. Be specific about what t
             # Extract paper IDs from results
             paper_ids = list(papers_dict.keys())
 
+            logger.info(f"Semantic search completed successfully: generated {len(final_response)} char response from {len(paper_ids)} papers")
             print(f"✅ Semantic search summary generated ({len(final_response)} characters)")
 
             return QueryResult(
@@ -703,6 +715,7 @@ Provide your answer in a clear, well-structured format. Be specific about what t
             )
 
         except Exception as e:
+            logger.error(f"Semantic search workflow failed: {str(e)}", exc_info=True)
             error_message = f"❌ Semantic search failed: {str(e)}"
             return QueryResult(
                 success=False,
@@ -714,6 +727,7 @@ Provide your answer in a clear, well-structured format. Be specific about what t
     
     async def process_paper_selection(self, selected_paper: PaperMetadata):
         """Process a selected paper through the complete workflow"""
+        logger.info(f"Starting paper processing for: {selected_paper.paper_id}")
         try:
             from .arxiv_downloader import download_paper
             from .vector_store import index_file
@@ -721,13 +735,17 @@ Provide your answer in a clear, well-structured format. Be specific about what t
             from .paper_manager import load_paper_summary
 
             # Step 1: Download the paper
+            logger.info(f"Downloading paper: {selected_paper.paper_id}")
             print(f"📥 Downloading paper: '{selected_paper.title}'...")
             local_path = download_paper(selected_paper, self.workflow.file_locations)
+            logger.info(f"Paper downloaded successfully: {local_path}")
             print(f"✅ Paper downloaded successfully to: {local_path}")
 
             # Step 2: Index the paper
+            logger.info(f"Indexing paper: {selected_paper.paper_id}")
             print(f"🔍 Indexing paper: '{selected_paper.title}'...")
             paper_text = index_file(selected_paper)
+            logger.info(f"Paper indexed successfully: extracted {len(paper_text)} chars")
             print(f"✅ Paper indexed successfully. Extracted {len(paper_text)} characters of text.")
 
             # Step 3: Check if summary already exists
@@ -735,18 +753,23 @@ Provide your answer in a clear, well-structured format. Be specific about what t
 
             if success:
                 # Summary already exists - return it
+                logger.info(f"Using existing summary for paper: {selected_paper.paper_id}")
                 print(f"📄 Summary already exists for: '{selected_paper.title}'")
                 print("✅ Using existing summary.")
                 summary = existing_summary
             else:
                 # Generate new summary
+                logger.info(f"Generating summary for paper: {selected_paper.paper_id}")
                 print(f"📝 Generating summary for: '{selected_paper.title}'...")
                 summary = summarize_paper(paper_text, selected_paper)
+                logger.info(f"Summary generated successfully for paper: {selected_paper.paper_id}")
                 print("✅ Summary generated successfully!")
 
                 # Save the summary
+                logger.info(f"Saving summary for paper: {selected_paper.paper_id}")
                 print(f"💾 Saving summary...")
                 save_summary(summary, selected_paper.paper_id)
+                logger.info(f"Summary saved successfully for paper: {selected_paper.paper_id}")
                 print("✅ Summary saved successfully!")
 
             # Return an object with the expected attributes
@@ -756,9 +779,11 @@ Provide your answer in a clear, well-structured format. Be specific about what t
                     self.summary = summary
                     self.paper_text = paper_text
 
+            logger.info(f"Paper processing completed successfully: {selected_paper.paper_id}")
             return ProcessingResult(selected_paper, summary, paper_text)
 
         except Exception as e:
+            logger.error(f"Paper processing failed for {selected_paper.paper_id}: {str(e)}", exc_info=True)
             return f"❌ Paper processing failed: {str(e)}"
 
     async def improve_summary(self, paper: PaperMetadata, current_summary: str, paper_text: str, feedback: str):
@@ -778,7 +803,7 @@ Provide your answer in a clear, well-structured format. Be specific about what t
 
             return SummaryResult(improved_summary)
         except Exception as e:
-            raise Exception(f"Summary improvement failed: {str(e)}")
+            raise Exception(f"❌ Summary improvement failed: {str(e)}")
 
     async def save_summary(self, paper: PaperMetadata, summary: str, paper_text: str):
         """Save a summary to the filesystem"""
@@ -803,7 +828,7 @@ You can now find another paper or start a new search."""
             print(completion_message)
             return f"Summary saved successfully: {file_path}"
         except Exception as e:
-            raise Exception(f"Summary save failed: {str(e)}")
+            raise Exception(f"❌ Summary save failed: {str(e)}")
 
     async def save_search_results(self, content: str, query: str, content_type: str = "search") -> SaveResult:
         """Save search or research results to a file with LLM-generated title."""

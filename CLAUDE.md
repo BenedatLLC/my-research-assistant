@@ -98,6 +98,7 @@ The system is built around a state machine-driven workflow with a pipeline archi
 - **Paper Removal** (`paper_removal.py`) - Remove papers from all storage locations including vector indexes
 - **Result Storage** (`result_storage.py`) - Save and manage search/research results with LLM-generated titles, open papers in PDF viewer
 - **Store Validation** (`validate_store.py`) - Validate and report on paper storage status across all components
+- **Logging Configuration** (`logging_config.py`) - Centralized logging setup with Rich terminal integration, file output, and API key redaction
 
 ### Data Storage Structure
 ```
@@ -145,6 +146,40 @@ The system uses a multi-stage approach:
 - Supports incremental indexing with persistent storage
 - Event-driven workflow architecture for paper processing pipeline
 - Structured result objects (`QueryResult`, `ProcessingResult`, `SaveResult`) for better error handling
+
+### Error Handling and Logging
+
+The system implements systematic error reporting and logging throughout:
+
+**Error Message Format:**
+- All user-facing error messages start with "❌" for consistency
+- Messages are concise (1-3 lines) indicating what failed and why
+- API errors from external services (OpenAI, Google Search, ArXiv) include details
+- Sensitive information (API keys) is automatically redacted
+
+**Logging System:**
+- Centralized configuration via `logging_config.py`
+- Integration with Rich library for terminal output
+- Optional logging controlled by CLI arguments (`--loglevel`, `--logfile`)
+- Four log levels: ERROR, WARNING, INFO, DEBUG
+- Terminal format: Single-character level indicator (E/W/I/D) + message
+- File format: ISO timestamp + level + message
+- Log files are appended (not overwritten) with session delimiters
+- LlamaIndex and OpenAI verbose logging suppressed by default
+
+**Logging Conventions:**
+- ERROR: All errors with stack traces (`exc_info=True`)
+- WARNING: Unusual situations requiring user awareness
+- INFO: Progress information and user commands
+- DEBUG: Detailed debugging information
+- Use `raise ... from ...` pattern when wrapping exceptions
+- Log at catch sites, not at raise sites for custom exceptions
+- Include context (paper ID, workflow state, substep) in error logs
+
+**API Key Redaction:**
+- Automatically redacts API keys in both terminal and file logs
+- Shows first 6 and last 4 characters (e.g., "sk-U10C2******0yZg")
+- Applies to OpenAI and Google Search API keys
 
 ### Testing Structure
 - Tests use pytest with custom `conftest.py` for path setup and temporary directories

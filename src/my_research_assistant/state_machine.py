@@ -4,10 +4,13 @@ This module implements the state machine described in the design document,
 managing state transitions and state variables for the chat interface.
 """
 
+import logging
 from enum import Enum
 from typing import List, Optional, Union
 from dataclasses import dataclass, field
 from .project_types import PaperMetadata
+
+logger = logging.getLogger(__name__)
 
 
 class WorkflowState(Enum):
@@ -87,6 +90,7 @@ class StateMachine:
 
     def reset(self):
         """Reset to initial state and clear all state variables."""
+        logger.info("State machine reset to initial state")
         self.current_state = WorkflowState.INITIAL
         self.state_vars.clear()
 
@@ -148,12 +152,14 @@ class StateMachine:
 
     def transition_to_initial(self, reason: str = ""):
         """Transition to initial state and clear state variables."""
+        logger.info(f"State transition to initial{f': {reason}' if reason else ''}")
         self.current_state = WorkflowState.INITIAL
         self.state_vars.clear()
 
     def transition_after_find(self, found_papers: bool) -> WorkflowState:
         """Handle state transition after find command."""
         if found_papers:
+            logger.info(f"State transition: initial -> select-new (found papers)")
             self.current_state = WorkflowState.SELECT_NEW
         else:
             self.transition_to_initial("No papers found")
@@ -161,21 +167,25 @@ class StateMachine:
 
     def transition_after_list(self) -> WorkflowState:
         """Handle state transition after list command."""
+        logger.info("State transition: * -> select-view (after list)")
         self.current_state = WorkflowState.SELECT_VIEW
         self.state_vars.draft = None  # Clear draft when listing papers
         return self.current_state
 
     def transition_after_summarize(self, paper: PaperMetadata, summary: str) -> WorkflowState:
         """Handle state transition after summarize command."""
+        logger.info(f"State transition: * -> summarized (paper: {paper.paper_id})")
         self.current_state = WorkflowState.SUMMARIZED
         # Preserve query set if the paper is in it, clear it otherwise
         preserve_query_set = self.state_vars.is_paper_in_query_set(paper.paper_id)
         self.state_vars.set_selected_paper(paper, summary, preserve_query_set=preserve_query_set)
+        logger.debug(f"Selected paper: {paper.paper_id}, preserve_query_set: {preserve_query_set}")
         return self.current_state
 
     def transition_after_sem_search(self, found_results: bool, search_results: str, paper_ids: List[str], original_query: str = "") -> WorkflowState:
         """Handle state transition after sem-search command."""
         if found_results:
+            logger.info(f"State transition: * -> sem-search (query: '{original_query[:50]}...', {len(paper_ids)} papers)")
             self.current_state = WorkflowState.SEM_SEARCH
             self.state_vars.set_query_results(paper_ids)
             self.state_vars.set_draft(search_results)
@@ -187,6 +197,7 @@ class StateMachine:
     def transition_after_research(self, found_results: bool, research_results: str, paper_ids: List[str], original_query: str = "") -> WorkflowState:
         """Handle state transition after research command."""
         if found_results:
+            logger.info(f"State transition: * -> research (query: '{original_query[:50]}...', {len(paper_ids)} papers)")
             self.current_state = WorkflowState.RESEARCH
             self.state_vars.set_query_results(paper_ids)
             self.state_vars.set_draft(research_results)
@@ -197,6 +208,7 @@ class StateMachine:
 
     def transition_after_summary_view(self, paper: PaperMetadata, summary: str) -> WorkflowState:
         """Handle state transition after viewing a paper summary."""
+        logger.info(f"State transition: * -> summarized (viewing summary for paper: {paper.paper_id})")
         self.current_state = WorkflowState.SUMMARIZED
         # Preserve query set if the paper is in it, clear it otherwise
         preserve_query_set = self.state_vars.is_paper_in_query_set(paper.paper_id)
@@ -205,6 +217,7 @@ class StateMachine:
 
     def transition_after_open(self, paper: PaperMetadata) -> WorkflowState:
         """Handle state transition after opening a paper."""
+        logger.info(f"State transition: * -> summarized (opening paper: {paper.paper_id})")
         self.current_state = WorkflowState.SUMMARIZED
         # Preserve query set if the paper is in it, clear it otherwise
         preserve_query_set = self.state_vars.is_paper_in_query_set(paper.paper_id)

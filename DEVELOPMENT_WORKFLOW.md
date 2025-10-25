@@ -289,6 +289,38 @@ def test_download_paper(temp_file_locations):
     download_paper(metadata, temp_file_locations)
 ```
 
+### Mocking and Patching
+
+**Critical Rule: Patch where the function is used, not where it's defined**
+
+When using `@patch` in tests, always patch the function in the module where it's **imported and used**, not where it's originally defined.
+
+❌ **Wrong - Patches where defined:**
+```python
+@patch('my_research_assistant.models.get_default_model')
+def test_summarize(mock_model):
+    # This won't work if summarizer imports get_default_model
+    summarize_paper(text, metadata)
+```
+
+✅ **Correct - Patches where used:**
+```python
+@patch('my_research_assistant.summarizer.get_default_model')
+def test_summarize(mock_model):
+    # This works because summarizer.py uses get_default_model
+    summarize_paper(text, metadata)
+```
+
+**Why this matters:**
+- When `summarizer.py` does `from .models import get_default_model`
+- It creates its own reference: `summarizer.get_default_model`
+- You must patch that reference, not the original in `models.py`
+
+**Quick check:**
+- Look at the import in the file you're testing
+- Patch `{that_module}.{function_name}`
+- Example: If `chat.py` imports `get_default_model`, patch `chat.get_default_model`
+
 ### Checking Test Coverage
 
 ```bash

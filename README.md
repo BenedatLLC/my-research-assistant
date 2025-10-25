@@ -132,6 +132,36 @@ Or run the main module directly:
 uv run python -m my_research_assistant
 ```
 
+#### Logging Options
+
+The chat interface supports optional logging for debugging and troubleshooting:
+
+```bash
+# Enable terminal logging at INFO level
+uv run chat --loglevel INFO
+
+# Write logs to a file (appends to file on each run)
+uv run chat --logfile research-assistant.log
+
+# Combine both options
+uv run chat --loglevel DEBUG --logfile debug.log
+```
+
+**Log levels** (from least to most verbose):
+- `ERROR` - Only errors with stack traces
+- `WARNING` - Errors and warnings
+- `INFO` - Errors, warnings, and progress information
+- `DEBUG` - All messages including detailed debugging information
+
+**Log formats**:
+- Terminal: Single-character level indicator (E/W/I/D) + message
+- File: ISO timestamp + level + message
+
+**Notes**:
+- Logs are appended to the file (not overwritten) on each run
+- API keys are automatically redacted in log output
+- LlamaIndex verbose logging is suppressed by default
+
 ### Example Session
 
 Here's a typical workflow for researching transformer attention mechanisms:

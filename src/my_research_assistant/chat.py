@@ -4,7 +4,9 @@ This module provides a terminal-based chat interface using the rich library
 for enhanced display and the WorkflowRunner for processing research tasks.
 """
 
+import argparse
 import asyncio
+import logging
 import sys
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -26,6 +28,9 @@ from .file_locations import FILE_LOCATIONS
 from .project_types import PaperMetadata
 from .interface_adapter import TerminalAdapter
 from .validate_store import print_store_validation
+from .logging_config import configure_logging
+
+logger = logging.getLogger(__name__)
 
 
 class ChatInterface:
@@ -1129,9 +1134,13 @@ The content has been saved to your results directory and can be referenced later
                 
                 # Add to history
                 self.add_to_history("user", user_input)
-                
+
+                # Log user command at INFO level
+                logger.info(f"User command: {user_input}")
+
                 # Handle quit commands
                 if user_input.lower() in ['quit', 'exit', 'q']:
+                    logger.info("User quit chat session")
                     self.console.print("👋 [bold blue]Goodbye! Happy researching![/bold blue]")
                     break
 
@@ -1279,13 +1288,47 @@ The content has been saved to your results directory and can be referenced later
 
 def main():
     """Main entry point for the chat interface."""
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(
+        description="Interactive research assistant chatbot for ArXiv papers",
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        '--loglevel',
+        choices=['ERROR', 'WARNING', 'INFO', 'DEBUG'],
+        help='Set the logging level for terminal output (default: no terminal logging)'
+    )
+    parser.add_argument(
+        '--logfile',
+        help='Path to log file (all log levels will be written). If not specified, no file logging.'
+    )
+
+    args = parser.parse_args()
+
+    # Configure logging before starting chat
+    try:
+        configure_logging(loglevel=args.loglevel, logfile=args.logfile)
+        logger.info("Research assistant chatbot starting")
+        if args.loglevel:
+            logger.info(f"Terminal logging enabled at level: {args.loglevel}")
+        if args.logfile:
+            logger.info(f"File logging enabled to: {args.logfile}")
+    except ValueError as e:
+        print(f"❌ Configuration error: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ Failed to configure logging: {e}")
+        sys.exit(1)
+
     try:
         chat = ChatInterface()
         asyncio.run(chat.run_chat_loop())
     except KeyboardInterrupt:
+        logger.info("User interrupted with Ctrl+C")
         print("\nGoodbye!")
     except Exception as e:
-        print(f"Fatal error: {e}")
+        logger.error("Fatal error in chat interface", exc_info=True)
+        print(f"❌ Fatal error: {e}")
         sys.exit(1)
 
 

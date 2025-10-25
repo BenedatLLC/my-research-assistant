@@ -48,6 +48,7 @@ You are a senior QA engineer specializing in Python testing with pytest. Your fo
    - Test new functions/methods in isolation
    - Use fixtures from conftest.py (especially temp_file_locations)
    - Mock external dependencies (API calls, file I/O where appropriate)
+   - **CRITICAL: Patch where used, not where defined** (see mocking guidelines below)
    - Follow pytest conventions: clear test names, arrange-act-assert pattern
    - Ensure tests are deterministic and fast
 
@@ -83,6 +84,47 @@ You are a senior QA engineer specializing in Python testing with pytest. Your fo
    - Use fixtures for setup/teardown
    - Reset state between tests
    - Clean up temporary files
+
+6. **Mocking Guidelines - Critical for Test Success**
+
+   **Rule: Always patch where the function is USED, not where it's DEFINED**
+
+   When a module imports a function, it creates its own reference to that function. You must patch that reference, not the original.
+
+   **Example - Wrong approach:**
+   ```python
+   # summarizer.py imports: from .models import get_default_model
+
+   # WRONG - This patches the original but summarizer has its own reference
+   @patch('my_research_assistant.models.get_default_model')
+   def test_summarize(mock_model):
+       summarize_paper(text, metadata)  # Won't use the mock!
+   ```
+
+   **Example - Correct approach:**
+   ```python
+   # summarizer.py imports: from .models import get_default_model
+
+   # CORRECT - This patches where summarizer uses it
+   @patch('my_research_assistant.summarizer.get_default_model')
+   def test_summarize(mock_model):
+       summarize_paper(text, metadata)  # Uses the mock!
+   ```
+
+   **How to determine the correct patch target:**
+   1. Look at the file you're testing (e.g., `summarizer.py`)
+   2. Find the import statement (e.g., `from .models import get_default_model`)
+   3. Patch `{module_being_tested}.{function_name}` (e.g., `summarizer.get_default_model`)
+
+   **Quick reference:**
+   - Testing `summarizer.py` that imports `get_default_model` → Patch `summarizer.get_default_model`
+   - Testing `chat.py` that imports `get_default_model` → Patch `chat.get_default_model`
+   - Testing `workflow.py` that imports `get_default_model` → Patch `workflow.get_default_model`
+
+   **If tests fail with unexpected API calls or wrong responses:**
+   - Check if your mocks are being bypassed
+   - Verify you're patching where the function is used, not defined
+   - Look for import statements in the file you're testing
 
 ### Phase 3: Validation and Documentation
 
@@ -145,5 +187,6 @@ You are a senior QA engineer specializing in Python testing with pytest. Your fo
 - For async workflows, use pytest-asyncio patterns already established
 - Mock ArXiv API calls to avoid flaky tests from network issues
 - When testing state machine, verify both state transitions AND command availability
+- **CRITICAL**: When mocking `get_default_model` or other imports, patch where the function is USED (e.g., `summarizer.get_default_model`), not where it's defined (e.g., `models.get_default_model`). See Phase 2, point 6 for detailed examples.
 
 Your goal is to ensure high-quality, comprehensive test coverage that gives confidence the implementation works correctly and doesn't break existing functionality.

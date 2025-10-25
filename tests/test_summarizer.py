@@ -35,29 +35,29 @@ def sample_paper_metadata():
 class TestSummarizePaper:
     """Test the summarize_paper function."""
 
-    @patch('my_research_assistant.summarizer.OpenAI')
+    @patch('my_research_assistant.summarizer.get_default_model')
     @patch('my_research_assistant.summarizer.subst_prompt')
-    def test_summarize_paper_basic(self, mock_subst_prompt, mock_openai_class, sample_paper_metadata):
+    def test_summarize_paper_basic(self, mock_subst_prompt, mock_get_model, sample_paper_metadata):
         """Test basic paper summarization without feedback."""
         # Setup mocks
         mock_llm = Mock()
-        mock_openai_class.return_value = mock_llm
-        
+        mock_get_model.return_value = mock_llm
+
         mock_response = Mock()
         mock_response.text = "```markdown\n# Sample Summary\n\nThis is a test summary.\n```"
         mock_llm.complete.return_value = mock_response
-        
+
         mock_subst_prompt.return_value = "Test prompt"
-        
+
         # Test input
         text = "This is the full paper text for testing."
-        
+
         # Call function
         result = summarize_paper(text, sample_paper_metadata)
-        
+
         # Assertions
         mock_subst_prompt.assert_called_once_with('base-summary-v2', text_block=text)
-        mock_openai_class.assert_called_once()
+        mock_get_model.assert_called_once()
         mock_llm.complete.assert_called_once_with("Test prompt")
         
         # Check that metadata was inserted
@@ -65,28 +65,28 @@ class TestSummarizePaper:
         assert "Authors: John Doe, Jane Smith" in result
         assert "Categories: cs.AI, cs.LG" in result
 
-    @patch('my_research_assistant.summarizer.OpenAI')
+    @patch('my_research_assistant.summarizer.get_default_model')
     @patch('my_research_assistant.summarizer.subst_prompt')
-    def test_summarize_paper_with_feedback(self, mock_subst_prompt, mock_openai_class, sample_paper_metadata):
+    def test_summarize_paper_with_feedback(self, mock_subst_prompt, mock_get_model, sample_paper_metadata):
         """Test paper summarization with feedback and previous summary."""
         # Setup mocks
         mock_llm = Mock()
-        mock_openai_class.return_value = mock_llm
-        
+        mock_get_model.return_value = mock_llm
+
         mock_response = Mock()
         mock_response.text = "```markdown\n# Improved Summary\n\nThis is an improved summary.\n```"
         mock_llm.complete.return_value = mock_response
-        
+
         mock_subst_prompt.return_value = "Improvement prompt"
-        
+
         # Test inputs
         text = "This is the full paper text."
         feedback = "Please make it more technical"
         previous_summary = "# Old Summary\n\nThis was the old summary."
-        
+
         # Call function
         result = summarize_paper(text, sample_paper_metadata, feedback=feedback, previous_summary=previous_summary)
-        
+
         # Assertions
         mock_subst_prompt.assert_called_once_with(
             'improve-summary-v2',
@@ -100,37 +100,37 @@ class TestSummarizePaper:
         assert "# Improved Summary" in result
         assert "Paper id: 2024.12345v1" in result
 
-    @patch('my_research_assistant.summarizer.OpenAI')
+    @patch('my_research_assistant.summarizer.get_default_model')
     @patch('my_research_assistant.summarizer.subst_prompt')
-    def test_summarize_paper_no_markdown_blocks(self, mock_subst_prompt, mock_openai_class, sample_paper_metadata):
+    def test_summarize_paper_no_markdown_blocks(self, mock_subst_prompt, mock_get_model, sample_paper_metadata):
         """Test summarization when response has no markdown code blocks."""
         # Setup mocks
         mock_llm = Mock()
-        mock_openai_class.return_value = mock_llm
-        
+        mock_get_model.return_value = mock_llm
+
         mock_response = Mock()
         mock_response.text = "# Plain Summary\n\nThis summary has no code blocks."
         mock_llm.complete.return_value = mock_response
-        
+
         mock_subst_prompt.return_value = "Test prompt"
-        
+
         # Test input
         text = "Paper text"
-        
+
         # Call function
         result = summarize_paper(text, sample_paper_metadata)
-        
+
         # Should work with plain text (extract_markdown returns original text)
         assert "# Plain Summary" in result
         assert "Paper id: 2024.12345v1" in result
 
-    @patch('my_research_assistant.summarizer.OpenAI')
+    @patch('my_research_assistant.summarizer.get_default_model')
     @patch('my_research_assistant.summarizer.subst_prompt')
-    def test_summarize_paper_llm_error(self, mock_subst_prompt, mock_openai_class, sample_paper_metadata):
+    def test_summarize_paper_llm_error(self, mock_subst_prompt, mock_get_model, sample_paper_metadata):
         """Test handling of LLM errors during summarization."""
         # Setup mocks
         mock_llm = Mock()
-        mock_openai_class.return_value = mock_llm
+        mock_get_model.return_value = mock_llm
         mock_llm.complete.side_effect = Exception("LLM API error")
         
         mock_subst_prompt.return_value = "Test prompt"
@@ -144,37 +144,37 @@ class TestSummarizePaper:
         
         assert "An error occurred during summarizing: LLM API error" in str(exc_info.value)
 
-    @patch('my_research_assistant.summarizer.OpenAI')
+    @patch('my_research_assistant.summarizer.get_default_model')
     @patch('my_research_assistant.summarizer.subst_prompt')
-    def test_summarize_paper_no_title_in_response(self, mock_subst_prompt, mock_openai_class, sample_paper_metadata):
+    def test_summarize_paper_no_title_in_response(self, mock_subst_prompt, mock_get_model, sample_paper_metadata):
         """Test handling when LLM response doesn't contain a title."""
         # Setup mocks
         mock_llm = Mock()
-        mock_openai_class.return_value = mock_llm
-        
+        mock_get_model.return_value = mock_llm
+
         mock_response = Mock()
         mock_response.text = "```markdown\nThis summary has no title heading.\n```"
         mock_llm.complete.return_value = mock_response
-        
+
         mock_subst_prompt.return_value = "Test prompt"
-        
+
         # Test input
         text = "Paper text"
-        
+
         # Call function and expect SummarizationError
         with pytest.raises(SummarizationError) as exc_info:
             summarize_paper(text, sample_paper_metadata)
-        
+
         assert "Generated markdown did not contain a title" in str(exc_info.value)
 
-    @patch('my_research_assistant.summarizer.OpenAI')
+    @patch('my_research_assistant.summarizer.get_default_model')
     @patch('my_research_assistant.summarizer.subst_prompt')
-    def test_summarize_paper_md_code_block(self, mock_subst_prompt, mock_openai_class, sample_paper_metadata):
+    def test_summarize_paper_md_code_block(self, mock_subst_prompt, mock_get_model, sample_paper_metadata):
         """Test extraction from ```md code blocks."""
         # Setup mocks
         mock_llm = Mock()
-        mock_openai_class.return_value = mock_llm
-        
+        mock_get_model.return_value = mock_llm
+
         mock_response = Mock()
         mock_response.text = "```md\n# MD Block Summary\n\nThis uses md instead of markdown.\n```"
         mock_llm.complete.return_value = mock_response

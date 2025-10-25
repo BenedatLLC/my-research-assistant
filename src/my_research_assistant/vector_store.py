@@ -1,5 +1,6 @@
 import os
 import datetime
+import logging
 from os.path import isdir, exists, join
 from shutil import rmtree
 from typing import Optional
@@ -13,6 +14,8 @@ from .file_locations import FILE_LOCATIONS, FileLocations
 from .project_types import PaperMetadata, SearchResult
 from .arxiv_downloader import get_downloaded_paper_ids, get_paper_metadata
 from . import models  # Import to ensure Settings.embed_model is configured
+
+logger = logging.getLogger(__name__)
 
 # Initialize global variables to hold the VectorStoreIndex objects.
 # We maintain separate indexes for content (paper text) and summaries/notes.
@@ -382,27 +385,29 @@ def index_file_using_pymupdf_parser(pmd:PaperMetadata, file_locations:FileLocati
 def index_file(pmd:PaperMetadata, file_locations:FileLocations=FILE_LOCATIONS) -> str:
     """
     Wrapper function to index a PDF file and return the extracted text.
-    
+
     This function indexes the file using the PyMuPDF parser and then
     returns the cached text content from parse_file for further processing.
-    
+
     Parameters
     ----------
     pmd: PaperMetadata
         The metadata about the paper to be indexed
     file_locations: FileLocations, optional
         Locations to read pdfs and save the index
-        
+
     Returns
     -------
     str
         The extracted paper text content
     """
+    logger.info(f"Indexing file for paper: {pmd.paper_id}")
     # Index the file using the PyMuPDF parser
     index_file_using_pymupdf_parser(pmd, file_locations)
-    
+
     # Get the cached text content using parse_file (avoids re-parsing)
     paper_text = parse_file(pmd, file_locations)
+    logger.info(f"File indexed successfully: {pmd.paper_id} ({len(paper_text)} chars extracted)")
     return paper_text
 
 
@@ -673,6 +678,7 @@ def search_index(query:str, k:int=5, file_locations:FileLocations=FILE_LOCATIONS
     RetrievalError
         If there's an error processing search results
     """
+    logger.info(f"Searching content index: query='{query[:100]}...', k={k}, use_mmr={use_mmr}")
     # Get the content index - use global if available, otherwise try to load existing
     global CONTENT_INDEX
 
@@ -681,12 +687,15 @@ def search_index(query:str, k:int=5, file_locations:FileLocations=FILE_LOCATIONS
     else:
         # For search operations, we require an existing database rather than creating a new one
         try:
+            logger.debug("Loading existing content index")
             content_index = _load_existing_chroma_vector_store(file_locations, "content")
             CONTENT_INDEX = content_index  # Cache it for future use
         except IndexError as e:
-            raise IndexError(f"No existing ChromaDB found at expected location. {e}")
+            logger.error(f"No existing ChromaDB found: {e}")
+            raise IndexError(f"❌ No existing ChromaDB found at expected location. {e}")
         except Exception as e:
-            raise IndexError(f"Error loading content index: {e}")
+            logger.error(f"Error loading content index: {e}", exc_info=True)
+            raise IndexError(f"❌ Error loading content index: {e}")
     
     # Configure retriever with enhanced options
     from llama_index.core.vector_stores.types import VectorStoreQueryMode

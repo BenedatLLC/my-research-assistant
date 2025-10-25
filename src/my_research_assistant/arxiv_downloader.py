@@ -140,7 +140,7 @@ def get_paper_metadata(arxiv_id: str, file_locations:Optional[str]=None) -> Pape
     result = next(client.results(search_by_id))
     paper_id = result.get_short_id()
     if result.pdf_url is None:
-        raise Exception(f"No pdf url found for paper {arxiv_id}")
+        raise Exception(f"❌ No pdf url found for paper {arxiv_id}")
 
     mappings = get_category_mappings()
     primary: str = map_category(result.primary_category, mappings)
@@ -322,7 +322,7 @@ def _google_search_arxiv_papers(query: str) -> list[PaperMetadata]:
     # If all metadata fetches failed, raise exception
     if not papers and deduplicated_ids:
         raise Exception(
-            f"Failed to fetch metadata for any papers. "
+            f"❌ Failed to fetch metadata for any papers. "
             f"Attempted IDs: {deduplicated_ids}, all failed."
         )
 
@@ -339,7 +339,7 @@ def _arxiv_keyword_search(query:str, max_results:int) -> list[PaperMetadata]:
     for result in client.results(search):
         paper_id = result.get_short_id()
         if result.pdf_url is None:
-            raise Exception(f"No pdf url found for paper {paper_id}")
+            raise Exception(f"❌ No pdf url found for paper {paper_id}")
         primary: str = map_category(result.primary_category, mappings)
         other_categories: list[str] = [map_category(c, mappings) for c in result.categories
                                       if c != result.primary_category]

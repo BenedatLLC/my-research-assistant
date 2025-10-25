@@ -196,7 +196,7 @@ class TestWorkflowSteps:
             result = await workflow.search_papers_impl(ctx, "nonexistent query")
             
             assert isinstance(result, StopEvent)
-            assert "No papers found" in result.result
+            assert "❌ No papers found" in result.result
     
     @pytest.mark.asyncio
     async def test_search_papers_exception(self, workflow):
@@ -211,7 +211,7 @@ class TestWorkflowSteps:
             result = await workflow.search_papers_impl(ctx, "test query")
             
             assert isinstance(result, StopEvent)
-            assert "Search failed" in result.result
+            assert "❌ Search failed" in result.result
             assert "API Error" in result.result
     
     @pytest.mark.asyncio
@@ -238,7 +238,7 @@ class TestWorkflowSteps:
         result = await workflow.handle_paper_selection(ctx, search_event)
         
         assert isinstance(result, StopEvent)
-        assert "No papers available" in result.result
+        assert "❌ No papers available" in result.result
     
     @pytest.mark.asyncio
     async def test_download_paper_step_success(self, workflow, sample_paper_metadata, temp_file_locations):
@@ -273,7 +273,7 @@ class TestWorkflowSteps:
             result = await workflow.download_paper_step(ctx, select_event)
             
             assert isinstance(result, StopEvent)
-            assert "Download failed" in result.result
+            assert "❌ Download failed" in result.result
     
     @pytest.mark.asyncio
     async def test_index_paper_step_success(self, workflow, sample_paper_metadata):

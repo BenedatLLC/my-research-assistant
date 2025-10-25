@@ -4,6 +4,7 @@ import textwrap
 from os.path import join
 from typing import Optional, Dict, Any
 import io
+import logging
 import numpy as np
 from llama_index.llms.openai import OpenAI
 import asyncio
@@ -13,8 +14,10 @@ from llama_index.llms.openai import OpenAI
 
 from .project_types import PaperMetadata
 from .file_locations import FILE_LOCATIONS
-from .models import DEFAULT_MODEL
+from .models import get_default_model
 from .prompt import subst_prompt
+
+logger = logging.getLogger(__name__)
 
 
 class SummarizationError(Exception):
@@ -75,37 +78,47 @@ def insert_metadata(markdown:str,
 def summarize_paper(text: str, pmd: PaperMetadata, feedback: Optional[str] = None, previous_summary: Optional[str] = None) -> str:
     """
     Summarize a paper, optionally taking user feedback to improve an existing summary.
-    
+
     Args:
         text: The full text of the paper to summarize
         pmd: Paper metadata
         feedback: Optional user feedback for improving the summary
         previous_summary: Optional previous summary to improve upon
-    
+
     Returns:
         The markdown summary
     """
+    if feedback and previous_summary:
+        logger.info(f"Improving summary for paper: {pmd.paper_id} with feedback")
+    else:
+        logger.info(f"Generating new summary for paper: {pmd.paper_id} ({len(text)} chars)")
+
     print(f"Generating summary for text of {len(text)} characters...")
-    
+
     # Build the prompt based on whether we have feedback
     if feedback and previous_summary:
         # We're improving an existing summary
+        logger.debug(f"Using improve-summary-v2 prompt")
         prompt = subst_prompt('improve-summary-v2', feedback=feedback,
                               previous_summary=previous_summary,
                               text_block=text)
     else:
         # Use the original summarization prompt
+        logger.debug(f"Using base-summary-v2 prompt")
         prompt = subst_prompt('base-summary-v2', text_block=text)
 
     try:
-        llm = OpenAI(model=DEFAULT_MODEL)
+        llm = get_default_model()
         response = llm.complete(prompt)
         markdown = insert_metadata(extract_markdown(response.text), pmd)
+        logger.info(f"Summary generated successfully for paper: {pmd.paper_id} ({len(markdown)} chars)")
         return markdown
     except SummarizationError:
+        logger.error(f"Summarization error for paper {pmd.paper_id}", exc_info=True)
         raise
     except Exception as e:
-        raise SummarizationError(f"An error occurred during summarizing: {e}") from e
+        logger.error(f"Unexpected error during summarization for paper {pmd.paper_id}: {str(e)}", exc_info=True)
+        raise SummarizationError(f"❌ An error occurred during summarizing: {e}") from e
 
 
 def save_summary(markdown: str, paper_id: str) -> str:

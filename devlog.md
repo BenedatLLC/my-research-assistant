@@ -9,6 +9,41 @@
 * chat interface with intent detection
 * Handle "old-style" arxiv ids that contain a "/"
 
+## Wednesday Oct 23, 2025
+
+### Systematic Error Handling and Logging
+
+Implemented comprehensive logging infrastructure and standardized error reporting across the research assistant.
+
+**Context:** User wanted consistent error messages for users and detailed logging for troubleshooting, with command-line control over log output.
+
+**What was added:**
+- `logging_config.py` module with Rich terminal integration, file logging, and API key redaction
+- CLI arguments for chat command: `--loglevel` (ERROR/WARNING/INFO/DEBUG) and `--logfile`
+- Standardized error message format starting with ❌ prefix
+- Automatic API key redaction showing first 6 and last 4 characters
+- Session delimiters in log files for multi-run tracking
+- LlamaIndex and OpenAI logging suppression
+
+**Error reporting improvements:**
+- Consistent ❌ prefix on all user-facing error messages
+- Concise 1-3 line error messages with actionable information
+- API errors from external services include full details
+- Internal errors use simplified format
+
+**Logging features:**
+- Terminal format: Single-character level indicator (E/W/I/D) + message
+- File format: ISO timestamp + level + message
+- Logs appended to file (not overwritten) with session markers
+- Context included in logs: paper ID, workflow state, substep information
+
+**Test coverage:**
+- 26 logging-specific unit tests
+- Updated workflow tests for new error format
+- All 361 tests passing
+
+**Original user prompt:** "I want to make the error reporting and logging more systematic. Can you review the design at designs/error-handling-and-logging.md and see if you have any questions?"
+
 ## Monday Oct 21, 2025
 
 ### Improved Pagination with Single-Key Input

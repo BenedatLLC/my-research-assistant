@@ -5,6 +5,7 @@ including deleting files and removing entries from vector indexes.
 """
 
 import os
+import logging
 from os.path import exists, join
 from typing import Tuple, Optional
 import chromadb
@@ -12,6 +13,8 @@ import chromadb
 from .file_locations import FileLocations, FILE_LOCATIONS
 from .project_types import PaperMetadata
 from .arxiv_downloader import get_downloaded_paper_ids, get_paper_metadata
+
+logger = logging.getLogger(__name__)
 
 
 def remove_paper_from_indexes(paper_id: str, file_locations: FileLocations = FILE_LOCATIONS) -> Tuple[int, int]:

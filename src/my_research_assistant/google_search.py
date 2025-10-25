@@ -1,7 +1,7 @@
 """Uses the google custom search api to find papers
 See https://developers.google.com/custom-search/v1/introduction for details.
 You need a custom search engine that restricts searches to arxiv.org (so we only
-get arXiv papers as the matches). 
+get arXiv papers as the matches).
 
 There are two environment variables that must be set to use this:
 GOOGLE_SEARCH_API_KEY   - this is your API key (used by Google for rate limiting, etc.)
@@ -11,6 +11,9 @@ import requests
 import json
 import os
 import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Get API credentials from environment variables
 API_KEY = os.environ.get("GOOGLE_SEARCH_API_KEY", None)
@@ -71,22 +74,24 @@ def extract_arxiv_id(url: str) -> str | None:
 def google_search_arxiv(query: str, k: int = 10, verbose: bool = False) -> list[str]:
     """
     Search for arXiv papers using Google Custom Search API.
-    
+
     Args:
         query: The search query string
         k: Number of search results to return (max 10 for one call)
         verbose: If True, print out title, link, and snippet for each result
-        
+
     Returns:
         A list of arXiv paper identifiers (without 'arxiv:' prefix)
-        
+
     Raises:
         GoogleSearchNotConfigured: If API_KEY or SEARCH_ENGINE_ID are not set
     """
+    logger.info(f"Google search for: '{query[:100]}...' (k={k})")
     # Check if credentials are configured
     if not API_KEY or not SEARCH_ENGINE_ID:
+        logger.error("Google Search API credentials not configured")
         raise GoogleSearchNotConfigured(
-            "Google Search API credentials not configured. "
+            "❌ Google Search API credentials not configured. "
             "Please set GOOGLE_SEARCH_API_KEY and GOOGLE_SEARCH_ENGINE_ID environment variables."
         )
     
@@ -102,51 +107,59 @@ def google_search_arxiv(query: str, k: int = 10, verbose: bool = False) -> list[
     }
     
     # Make the GET request to the API
+    logger.debug(f"Making Google Search API request: {SEARCH_URL}")
     response = requests.get(SEARCH_URL, params=params)
-    
+
     paper_ids = []
-    
+
     # Check for a successful response (status code 200)
     if response.status_code == 200:
         # Parse the JSON response
         search_data = response.json()
-        
+
         # Check if 'items' (search results) are present
         if 'items' in search_data:
+            logger.info(f"Google search found {len(search_data['items'])} results")
             if verbose:
                 print(f"--- Search Results for: '{query}' ---")
-            
+
             for i, item in enumerate(search_data['items'], 1):
                 title = item.get('title')
                 link = item.get('link')
                 snippet = item.get('snippet')
-                
+
                 # Extract arXiv ID from URL
                 if link:
                     arxiv_id = extract_arxiv_id(link)
                     if arxiv_id:
                         paper_ids.append(arxiv_id)
-                
+                        logger.debug(f"Extracted arXiv ID: {arxiv_id} from {link}")
+
                 # Print details if verbose mode is enabled
                 if verbose:
                     print(f"\n{i}. {title}")
                     print(f"   URL: {link}")
                     print(f"   Snippet: {snippet}")
         else:
+            logger.warning(f"No search results found for query: '{query[:100]}...'")
             if verbose:
                 print("No search results found.")
     else:
         # Print an error message if the request failed
-        error_msg = f"Error: API request failed with status code {response.status_code}"
+        error_msg = f"❌ API request failed with status code {response.status_code}"
+        logger.error(f"Google Search API request failed: status={response.status_code}")
         if verbose:
             print(error_msg)
             try:
                 error_details = response.json()
-                print(f"Details: {error_details.get('error', {}).get('message')}")
+                error_message = error_details.get('error', {}).get('message', 'Unknown error')
+                logger.error(f"Google Search API error details: {error_message}")
+                print(f"Details: {error_message}")
             except json.JSONDecodeError:
+                logger.error("Could not decode error response from Google Search API")
                 print("Could not decode error response.")
         else:
-            raise Exception(error_msg)
+            raise Exception(f"❌ {error_msg}")
     
     return paper_ids
 
