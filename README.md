@@ -482,11 +482,19 @@ uv add --group dev <package-name>
 
 The `designs/` directory contains comprehensive design documentation:
 
-- `workflow-state-machine-and-commands.md` - State machine specification
-- `command-arguments.md` - Paper argument parsing
-- `research-command.md` - Hierarchical RAG design
-- `file-store.md` - Data storage architecture
-- `user-stores.md` - User operations and workflows
+- `workflow-state-machine-and-commands.md` - State machine specification - **implemented**
+- `command-arguments.md` - Paper argument parsing - **implemented**
+- `command-types.md` - Command categorization and usage patterns - **implemented**
+- `open-command.md` - PDF viewer integration and terminal fallback - **implemented**
+- `remove-paper-command.md` - Paper removal from all storage locations - **implemented**
+- `research-command.md` - Hierarchical RAG design - **implemented**
+- `find-command.md` - Google Custom Search integration - **implemented**
+- `constants.md` - Centralized constants for search and retrieval hyperparameters - **implemented**
+- `validate-command.md` - Store validation command - **implemented**
+- `error-handling-and-logging.md` - Error reporting and logging system - **implemented**
+- `file-store.md` - Data storage architecture - **implemented**
+- `user-stores.md` - User operations and workflows - **partially implemented**
+- `improved-pagination.md` - Single-key pagination design - **implemented**
 
 ## Contributing
 

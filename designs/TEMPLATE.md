@@ -1,5 +1,5 @@
 ---
-status: draft
+status: draft # this should be one of draft, not implemented, partially implemented, in progress, or implemented
 ---
 # Design: [Feature Name]
 

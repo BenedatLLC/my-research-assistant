@@ -10,6 +10,7 @@ from pydantic import BaseModel
 import arxiv
 from .file_locations import FILE_LOCATIONS, FileLocations
 from .project_types import PaperMetadata
+from . import constants
 
 CATEGORY_DATA=\
 """category_id,category_name,description
@@ -272,7 +273,9 @@ def _deduplicate_arxiv_ids(arxiv_ids: list[str]) -> list[str]:
     return deduplicated
 
 
-def _google_search_arxiv_papers(query: str) -> list[PaperMetadata]:
+def _google_search_arxiv_papers(query: str,
+                                k=constants.GOOGLE_SEARCH_RESULT_COUNT
+                                ) -> list[PaperMetadata]:
     """
     Search for papers using Google Custom Search + ArXiv API.
 
@@ -285,10 +288,14 @@ def _google_search_arxiv_papers(query: str) -> list[PaperMetadata]:
     query : str
         User's search query
 
+    k: int
+        Limit for number of results. We currently restrict this, due to limitations
+        in the google_search implementation.
+
     Returns
     -------
     list[PaperMetadata]
-        Papers found via Google search (up to 10), with full metadata from ArXiv API
+        Papers found via Google search (up to k), with full metadata from ArXiv API
 
     Raises
     ------
@@ -297,8 +304,11 @@ def _google_search_arxiv_papers(query: str) -> list[PaperMetadata]:
     """
     from .google_search import google_search_arxiv
 
-    # Call Google search to get up to 10 paper IDs
-    paper_ids = google_search_arxiv(query, k=10)
+    # Call Google search to get paper IDs
+    # We use GOOGLE_SEARCH_RESULT_COUNT as an upper bound. See google_search.py
+    # for details.
+    paper_ids = google_search_arxiv(query,
+                                    k=min(k, constants.GOOGLE_SEARCH_RESULT_COUNT))
 
     # Return early if no results
     if not paper_ids:
@@ -361,7 +371,7 @@ def _arxiv_keyword_search(query:str, max_results:int) -> list[PaperMetadata]:
     return metadata_results
 
 
-def search_arxiv_papers(query:str, k:int=1, candidate_limit:int=50) -> list[PaperMetadata]:
+def search_arxiv_papers(query:str, k:int=constants.ARXIV_SEARCH_RESULT_COUNT, candidate_limit:int=constants.ARXIV_CANDIDATE_LIMIT) -> list[PaperMetadata]:
     """Search for papers using Google Custom Search (if configured) or ArXiv API (fallback).
 
     Then, rerank by computing embeddings for each of the search results and compare to the embedding of the original query
@@ -372,9 +382,9 @@ def search_arxiv_papers(query:str, k:int=1, candidate_limit:int=50) -> list[Pape
     query: str
         Search text for finding papers. This can match to the title, paper id, abstract, authors, etc.
     k: int
-        Maximum number of matches to return after reranking. Defaults to 1.
+        Maximum number of matches to return after reranking. Defaults to ARXIV_SEARCH_RESULT_COUNT.
     candidate_limit: int
-        Maximum number of candiate papers to return from the initial keyword search on Arxiv (ArXiv API only).
+        Maximum number of candiate papers to return from the initial keyword search on Arxiv (ArXiv API only, default: ARXIV_CANDIDATE_LIMIT).
 
     Returns
     -------
@@ -390,7 +400,7 @@ def search_arxiv_papers(query:str, k:int=1, candidate_limit:int=50) -> list[Pape
 
     if google_search_available:
         logging.debug("Using Google Custom Search...")
-        candidates = _google_search_arxiv_papers(query)
+        candidates = _google_search_arxiv_papers(query, k=candidate_limit)
     else:
         logging.debug("Google Custom Search not configured, using ArXiv API search...")
         candidates = _arxiv_keyword_search(query, max_results=candidate_limit)

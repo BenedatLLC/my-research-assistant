@@ -14,6 +14,7 @@ from .file_locations import FILE_LOCATIONS, FileLocations
 from .project_types import PaperMetadata, SearchResult
 from .arxiv_downloader import get_downloaded_paper_ids, get_paper_metadata
 from . import models  # Import to ensure Settings.embed_model is configured
+from . import constants
 
 logger = logging.getLogger(__name__)
 
@@ -641,8 +642,8 @@ def _retrieve_with_manual_diversity(content_index, query: str, k: int, similarit
     return diverse_chunks
 
 
-def search_index(query:str, k:int=5, file_locations:FileLocations=FILE_LOCATIONS,
-                 use_mmr:bool=True, similarity_cutoff:float=0.6, mmr_alpha:float=0.5) \
+def search_index(query:str, k:int=constants.CONTENT_SEARCH_K, file_locations:FileLocations=FILE_LOCATIONS,
+                 use_mmr:bool=constants.CONTENT_SEARCH_USE_MMR, similarity_cutoff:float=constants.CONTENT_SEARCH_SIMILARITY_CUTOFF, mmr_alpha:float=constants.CONTENT_SEARCH_MMR_ALPHA) \
     -> list[SearchResult]:
     """
     Search the content index for papers matching the query with enhanced retrieval strategies.
@@ -763,8 +764,8 @@ def search_index(query:str, k:int=5, file_locations:FileLocations=FILE_LOCATIONS
     return results
 
 
-def search_summary_index(query:str, k:int=5, file_locations:FileLocations=FILE_LOCATIONS,
-                         use_mmr:bool=False, similarity_cutoff:float=0.0) \
+def search_summary_index(query:str, k:int=constants.SUMMARY_SEARCH_K, file_locations:FileLocations=FILE_LOCATIONS,
+                         use_mmr:bool=constants.SUMMARY_SEARCH_USE_MMR, similarity_cutoff:float=constants.SUMMARY_SEARCH_SIMILARITY_CUTOFF) \
     -> list[SearchResult]:
     """
     Search the summary index for papers matching the query.
@@ -866,9 +867,9 @@ def search_summary_index(query:str, k:int=5, file_locations:FileLocations=FILE_L
     return results
 
 
-def search_content_index_filtered(query: str, paper_ids: list[str], k: int = 5,
+def search_content_index_filtered(query: str, paper_ids: list[str], k: int = constants.RESEARCH_DETAIL_CHUNKS,
                                    file_locations: FileLocations = FILE_LOCATIONS,
-                                   similarity_cutoff: float = 0.0) -> list[SearchResult]:
+                                   similarity_cutoff: float = constants.RESEARCH_CONTENT_SIMILARITY_CUTOFF) -> list[SearchResult]:
     """
     Search the content index with filtering to specific papers.
 

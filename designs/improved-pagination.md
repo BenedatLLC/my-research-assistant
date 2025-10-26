@@ -1,8 +1,8 @@
-# Improved Pagination Design
+---
+Status: implemented
+---
 
-**Status**: Draft
-**Created**: 2025-10-20
-**Updated**: 2025-10-20
+# Improved Pagination Design
 
 ## Overview
 

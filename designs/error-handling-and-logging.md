@@ -1,5 +1,5 @@
 ---
-status: draft
+status: implemented
 ---
 
 # Design for error handling and logging

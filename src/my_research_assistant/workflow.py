@@ -69,6 +69,7 @@ from .vector_store import index_file, search_index
 from .summarizer import summarize_paper, save_summary
 from .project_types import PaperMetadata, SearchResult
 from .interface_adapter import InterfaceAdapter
+from . import constants
 
 
 # Define result classes for structured workflow returns
@@ -211,9 +212,9 @@ class ResearchAssistantWorkflow(Workflow):
         """Implementation of paper search"""
         try:
             with self.interface.progress_context(f"🔍 Searching for papers matching: '{query}'..."):
-                # Search for papers (default k=5 for initial search to show options)
+                # Search for papers
                 try:
-                    papers = search_arxiv_papers(query, k=5)
+                    papers = search_arxiv_papers(query, k=constants.ARXIV_SEARCH_RESULT_COUNT)
                 except Exception as e:
                     # Immediately handle search API exceptions
                     self.interface.show_error(f"❌ Search failed: {str(e)}")
@@ -361,14 +362,13 @@ You can now find another paper or start a new search."""
         try:
             with self.interface.progress_context(f"🔍 Searching local paper index for: '{query}'..."):
                 # Search the local index with enhanced retrieval for better compound query handling
-                # Use MMR with higher k and moderate similarity filtering for diverse, quality results
                 results = search_index(
                     query,
-                    k=20,  # Increased for compound queries
+                    k=constants.CONTENT_SEARCH_K,
                     file_locations=self.file_locations,
-                    use_mmr=True,  # Enable MMR for diversity
-                    similarity_cutoff=0.6,  # Filter low-quality matches
-                    mmr_alpha=0.5  # Balance relevance and diversity
+                    use_mmr=constants.CONTENT_SEARCH_USE_MMR,
+                    similarity_cutoff=constants.CONTENT_SEARCH_SIMILARITY_CUTOFF,
+                    mmr_alpha=constants.CONTENT_SEARCH_MMR_ALPHA
                 )
             
             if not results:
@@ -543,11 +543,11 @@ class WorkflowRunner:
             # Search the local index with enhanced retrieval for better compound query handling
             results = search_index(
                 query,
-                k=20,
+                k=constants.CONTENT_SEARCH_K,
                 file_locations=self.workflow.file_locations,
-                use_mmr=True,
-                similarity_cutoff=0.6,
-                mmr_alpha=0.5
+                use_mmr=constants.CONTENT_SEARCH_USE_MMR,
+                similarity_cutoff=constants.CONTENT_SEARCH_SIMILARITY_CUTOFF,
+                mmr_alpha=constants.CONTENT_SEARCH_MMR_ALPHA
             )
 
             if not results:
@@ -992,7 +992,7 @@ Please provide an improved version that addresses the feedback while maintaining
                 content=f"❌ **Error listing papers**: {str(e)}"
             )
 
-    async def research_query(self, query: str, num_summary_papers: int = 5, num_detail_chunks: int = 10) -> QueryResult:
+    async def research_query(self, query: str, num_summary_papers: int = constants.RESEARCH_SUMMARY_PAPERS, num_detail_chunks: int = constants.RESEARCH_DETAIL_CHUNKS) -> QueryResult:
         """
         Perform deep research query using two-stage approach.
 
@@ -1002,8 +1002,8 @@ Please provide an improved version that addresses the feedback while maintaining
 
         Args:
             query: Research question to answer
-            num_summary_papers: Number of papers to identify from summary search (default: 5)
-            num_detail_chunks: Number of detailed chunks to retrieve from papers (default: 10)
+            num_summary_papers: Number of papers to identify from summary search (default: from constants)
+            num_detail_chunks: Number of detailed chunks to retrieve from papers (default: from constants)
 
         Returns:
             QueryResult with synthesized research findings and paper references
@@ -1020,8 +1020,8 @@ Please provide an improved version that addresses the feedback while maintaining
                 query,
                 k=num_summary_papers,
                 file_locations=self.workflow.file_locations,
-                use_mmr=True,  # Diverse papers
-                similarity_cutoff=0.5  # Moderate threshold
+                use_mmr=constants.SUMMARY_SEARCH_USE_MMR,
+                similarity_cutoff=constants.SUMMARY_SEARCH_SIMILARITY_CUTOFF
             )
 
             if not summary_results:
@@ -1061,7 +1061,7 @@ Please provide an improved version that addresses the feedback while maintaining
                 paper_ids=paper_ids,
                 k=num_detail_chunks,
                 file_locations=self.workflow.file_locations,
-                similarity_cutoff=0.5
+                similarity_cutoff=constants.RESEARCH_CONTENT_SIMILARITY_CUTOFF
             )
 
             if not detail_results:

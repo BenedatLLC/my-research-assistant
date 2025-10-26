@@ -13,6 +13,8 @@ import os
 import re
 import logging
 
+from . import constants
+
 logger = logging.getLogger(__name__)
 
 # Get API credentials from environment variables
@@ -71,7 +73,7 @@ def extract_arxiv_id(url: str) -> str | None:
     return None
 
 
-def google_search_arxiv(query: str, k: int = 10, verbose: bool = False) -> list[str]:
+def google_search_arxiv(query: str, k: int = constants.GOOGLE_SEARCH_RESULT_COUNT, verbose: bool = False) -> list[str]:
     """
     Search for arXiv papers using Google Custom Search API.
 
@@ -87,6 +89,8 @@ def google_search_arxiv(query: str, k: int = 10, verbose: bool = False) -> list[
         GoogleSearchNotConfigured: If API_KEY or SEARCH_ENGINE_ID are not set
     """
     logger.info(f"Google search for: '{query[:100]}...' (k={k})")
+    assert k <= 10, \
+        f"google_search_archive was called with k={k}, but this API is currently limited to one batch (10 results)"
     # Check if credentials are configured
     if not API_KEY or not SEARCH_ENGINE_ID:
         logger.error("Google Search API credentials not configured")

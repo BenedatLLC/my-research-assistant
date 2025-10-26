@@ -39,8 +39,8 @@ def test_search_arxiv_papers_edge_cases():
     results = search_arxiv_papers("neural networks", k=5, candidate_limit=2)
     assert len(results) <= 2, "Should not return more results than candidates found"
     
-    # Test with k=1 (default)
-    results = search_arxiv_papers("artificial intelligence")
+    # Test with k=1 explicitly
+    results = search_arxiv_papers("artificial intelligence", k=1)
     assert len(results) == 1, "Should return exactly 1 result when k=1"
 
 
@@ -266,7 +266,7 @@ class TestSearchArxivPapersRouting:
         result = search_arxiv_papers("test query", k=3)
 
         # Google search should be called
-        mock_google_search_papers.assert_called_once_with("test query")
+        mock_google_search_papers.assert_called_once_with("test query", k=50)
 
         # ArXiv search should NOT be called
         mock_arxiv_search.assert_not_called()

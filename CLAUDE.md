@@ -346,13 +346,16 @@ cp designs/TEMPLATE.md designs/new-feature.md
 
 ### Design Documentation
 The `designs/` directory contains comprehensive design documents:
-- `workflow-state-machine-and-commands.md` - Complete state machine specification with test flows
+- `workflow-state-machine-and-commands.md` - Complete state machine specification with test flows - **implemented**
 - `command-arguments.md` - Enhanced paper argument parsing (integer numbers vs ArXiv IDs) - **implemented**
-- `command-types.md` - Command categorization and usage patterns
+- `command-types.md` - Command categorization and usage patterns - **implemented**
 - `open-command.md` - PDF viewer integration and terminal fallback - **implemented**
 - `remove-paper-command.md` - Paper removal from all storage locations - **implemented**
 - `research-command.md` - Hierarchical RAG design for deep research - **implemented**
 - `find-command.md` - Enhanced find command with Google Custom Search integration - **implemented**
-- `validate-command.md` - Store validation command design
-- `file-store.md` - Data storage architecture and paper states
-- `user-stores.md` - High-level user operations and workflows
+- `constants.md` - Centralized constants for search and retrieval hyperparameters - **implemented**
+- `validate-command.md` - Store validation command design - **implemented**
+- `error-handling-and-logging.md` - Error reporting and logging system - **implemented**
+- `file-store.md` - Data storage architecture and paper states - **implemented**
+- `user-stores.md` - High-level user operations and workflows - **partially implemented**
+- `improved-pagination.md` - Single-key pagination design - **implemented**
