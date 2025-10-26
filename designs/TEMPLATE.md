@@ -1,20 +1,15 @@
 ---
-status: draft # this should be one of draft, not implemented, partially implemented, in progress, or implemented
+status: draft
 ---
 # Design: [Feature Name]
 
-_Brief one-sentence description of what this feature does._
+_One-sentence description of what this feature does._
 
-## Overview
+## Problem / Goal
 
-Provide a high-level description of the feature, including:
-- What problem does it solve?
-- Why is this needed?
-- How does it fit into the existing system?
+What problem does this solve? Why is this needed?
 
-## User Stories / Use Cases
-
-Describe how users will interact with this feature:
+## Use Cases
 
 1. **Use Case 1**: User wants to...
    - User action: ...
@@ -26,257 +21,161 @@ Describe how users will interact with this feature:
    - System response: ...
    - Outcome: ...
 
-## Requirements
+## Requirements (optional)
 
-### Functional Requirements
-
-- **FR1**: The system shall...
-- **FR2**: The system shall...
-- **FR3**: When [condition], the system shall...
-
-### Non-Functional Requirements
-
-- **NFR1**: Performance - ...
-- **NFR2**: Usability - ...
-- **NFR3**: Reliability - ...
+What the system needs to do:
+- The system shall...
+- When [condition], the system should...
+- Performance: ...
+- Reliability: ...
 
 ## Design
 
-### Architecture
+How does it work? Cover what's relevant:
+- Data flow / architecture (ASCII diagrams welcome)
+- Key components, functions, or modules
+- Command syntax and output
+- State changes (if applicable)
+- Error handling
+- Edge cases
 
-Describe how this feature fits into the existing architecture:
-- Which components/modules are affected?
-- How does data flow through the system?
-- What are the key interfaces/APIs?
-
-You can use ASCII diagrams if helpful:
 ```
-┌──────────────┐       ┌──────────────┐       ┌──────────────┐
-│  Component A │──────>│  Component B │──────>│  Component C │
-└──────────────┘       └──────────────┘       └──────────────┘
+Example data flow:
+User → Command → Process → Result
 ```
-
-### State Management (if applicable)
-
-- What state changes occur?
-- How does this interact with the existing state machine?
-- What state variables are needed?
-
-### Data Structures (if applicable)
-
-Describe any new data structures or modifications to existing ones:
 
 ```python
-class NewDataStructure:
+# Example data structure (if needed)
+class NewStructure:
     field1: str
     field2: int
-    field3: Optional[List[str]]
 ```
 
-### User Interface (if applicable)
+## Examples
 
-- What commands are added/modified?
-- What is the command syntax?
-- What output does the user see?
-- How are errors communicated?
+Show concrete interactions - this is often the most valuable section.
 
-Example:
-```
-> new-command <arg1> [optional-arg2]
-
-Processing...
-✓ Success message
-Results displayed here
+### Example 1: Happy path
+```chat
+You: command arg
+Response: ...
 ```
 
-### Error Handling
+### Example 2: Error case
+```chat
+You: command invalid-arg
+❌ Error message explaining what went wrong
+```
 
-- What can go wrong?
-- How should errors be handled?
-- What error messages should users see?
+### Example 3: Edge case (if interesting)
+```chat
+You: command edge-case
+Response: ...
+```
 
-### Edge Cases
+## Testing (optional)
 
-- What are the boundary conditions?
-- How should the system handle unusual inputs?
-- What happens in error scenarios?
+What needs to be tested:
+- Happy path scenarios
+- Error cases
+- Edge cases
+- End-to-end user workflows
 
-## Testing Considerations
-
-### Test Scenarios
-
-1. **Scenario 1**: [Happy path]
-   - Given: ...
-   - When: ...
-   - Then: ...
-
-2. **Scenario 2**: [Error case]
-   - Given: ...
-   - When: ...
-   - Then: ...
-
-3. **Scenario 3**: [Edge case]
-   - Given: ...
-   - When: ...
-   - Then: ...
-
-### End-to-End User Flows
-
-Complete workflows that should be tested:
-
-1. **Flow**: Find → Select → Process
-   - Step 1: User runs `command1 arg`
-   - Step 2: System shows results
-   - Step 3: User runs `command2 number`
-   - Step 4: System processes and displays output
-
-## Dependencies
-
-- What existing components does this depend on?
-- Are there any external dependencies?
-- Are there any ordering constraints with other features?
-
-## Alternatives Considered
-
-What other approaches were considered and why were they not chosen?
-
-- **Alternative 1**: ...
-  - Pros: ...
-  - Cons: ...
-  - Decision: Not chosen because...
+Example flow to test:
+1. User runs `command1 arg`
+2. System shows results
+3. User runs `command2 number`
+4. System processes and displays output
 
 ## Open Questions
 
 - [ ] Question 1: ...
-- [ ] Question 2: ...
-- [ ] Question 3: ...
 
 ---
 
 ## Implementation Plan
 
-_This section is added by design-implementer during Phase 2, before coding begins._
+_Added by design-implementer before coding begins._
 
-### Summary
+### Approach
 
-High-level overview of the implementation approach.
+High-level overview of how to implement this.
 
 ### Files to Create/Modify
 
-- `src/module1.py` - Add new function X, modify function Y
-- `src/module2.py` - Create new class Z
-- `tests/test_module1.py` - Add unit tests for X and Y
-- `tests/test_module2.py` - Create new test file for Z
-- `tests/test_integration.py` - Add E2E tests for user workflow
+- `src/module1.py` - Add function X, modify function Y
+- `src/module2.py` - Create class Z
+- `tests/test_module1.py` - Unit tests for X and Y
+- `tests/test_integration.py` - E2E tests
 
-### Step-by-Step Plan
+### Steps
 
 1. **Step 1**: Create data structures
-   - Add NewClass to module1.py
-   - Update existing DataClass with new field
-
 2. **Step 2**: Implement core logic
-   - Add process_data() function
-   - Integrate with existing workflow
-
 3. **Step 3**: Add command interface
-   - Update state machine to handle new command
-   - Add command processing in chat.py
-
-4. **Step 4**: Testing (see Testing Strategy below)
-
-5. **Step 5**: Documentation updates (see Documentation Updates below)
+4. **Step 4**: Write tests (unit, integration, E2E)
+5. **Step 5**: Update documentation
 
 ### Testing Strategy
 
-#### Unit Tests
-- Test NewClass initialization and methods
-- Test process_data() with various inputs
-- Test edge cases and error handling
+**Unit Tests**: Test individual functions and edge cases
+**Integration Tests**: Test command integration with state machine
+**E2E Tests**: Test complete user workflows from Use Cases
 
-#### Integration Tests
-- Test command integration with state machine
-- Test workflow integration
-- Test file operations with temp directories
+**Testability**: Use API-level testing, temp_file_locations fixture, mock external dependencies
 
-#### End-to-End Tests
-- **E2E Test 1**: Complete user flow from design Use Case 1
-- **E2E Test 2**: Error handling flow
-- **E2E Test 3**: Edge case workflow
+### Risks
 
-#### Testability Considerations
-- Ensure API-level testing (avoid terminal I/O simulation)
-- Use temp_file_locations fixture for file operations
-- Mock external dependencies (ArXiv API, etc.)
+- **Risk 1**: Performance with large datasets → Mitigation: ...
+- **Risk 2**: Backward compatibility → Mitigation: ...
 
-### Risk Areas
+### Documentation
 
-- **Risk 1**: Performance concern with large datasets
-  - Mitigation: Add benchmarks, optimize if needed
-
-- **Risk 2**: Backward compatibility with existing command X
-  - Mitigation: Maintain old behavior, add feature flag if needed
-
-- **Risk 3**: State machine complexity increased
-  - Mitigation: Comprehensive state transition tests
-
-### Documentation Updates
-
-- **README.md**: Add new command to Command Reference section
-- **CLAUDE.md**: Update architecture if new component added
-- **devlog.md**: Add entry with implementation summary and original user prompt
+- README.md - Add command reference
+- CLAUDE.md - Update architecture
+- devlog.md - Add implementation entry
 
 ---
 
 ## Implementation
 
-_This section is added by design-implementer during Phase 5, after implementation is complete. It replaces the "Implementation Plan" section above._
+_Added by design-implementer after completion._
 
 ### Summary
 
-Brief description of how the feature was actually implemented, following the plan above.
+Brief description of what was actually built.
 
-### Key Implementation Decisions
+### Key Decisions
 
-- **Decision 1**: Chose approach X over Y because...
-- **Decision 2**: Added helper function Z for better testability
-- **Decision 3**: Modified existing function W to support new feature
+- **Decision 1**: Chose X over Y because...
+- **Decision 2**: Added helper Z for testability
 
 ### Deviations from Plan
 
-- Changed step 2 to use different approach because...
-- Added extra validation that wasn't in original plan
-- (Or: "No significant deviations from plan")
+- Changed step 2 approach because...
+- Or: "No significant deviations"
 
 ### Test Coverage
 
-- **Unit tests**: 8 tests covering all new functions and edge cases
-- **Integration tests**: 4 tests for state machine and workflow integration
-- **End-to-end tests**: 3 tests covering complete user workflows
+- Unit tests: 8 tests
+- Integration tests: 4 tests
+- E2E tests: 3 tests
 - **Total**: 15 new tests, all passing
 
-### Files Modified/Created
+### Files Changed
 
 - Created: `src/new_module.py` (150 lines)
-- Modified: `src/existing_module.py` (+80 lines)
-- Created: `tests/test_new_module.py` (200 lines, 8 tests)
-- Modified: `tests/test_existing.py` (+100 lines, 7 tests)
+- Modified: `src/existing.py` (+80 lines)
+- Created: `tests/test_new.py` (8 tests)
 
-### Known Limitations / TODOs
+### Known Limitations
 
-- [ ] Performance optimization for very large datasets (future work)
-- [ ] Additional error messages for edge case X
-- (Or: "No known limitations")
+- [ ] Performance optimization for large datasets (future work)
+- Or: "None"
 
-### Documentation Updated
+### Documentation
 
-- ✓ README.md - Added command reference
-- ✓ CLAUDE.md - Updated architecture overview
-- ✓ devlog.md - Added implementation entry
-- ✓ tests/TESTING_SUMMARY.md - Documented new tests
-
-### Status
-
-Status: ✅ Implemented and tested - ready for use
-
-All tests passing (total: X tests in suite)
+- ✓ README.md
+- ✓ CLAUDE.md
+- ✓ devlog.md
+- ✓ tests/TESTING_SUMMARY.md
