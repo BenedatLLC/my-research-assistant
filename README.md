@@ -493,7 +493,7 @@ The `designs/` directory contains comprehensive design documentation:
 - `validate-command.md` - Store validation command - **implemented**
 - `error-handling-and-logging.md` - Error reporting and logging system - **implemented**
 - `file-store.md` - Data storage architecture - **implemented**
-- `user-stores.md` - User operations and workflows - **partially implemented**
+- `user-stories.md` - User operations and workflows - **partially implemented**
 - `improved-pagination.md` - Single-key pagination design - **implemented**
 
 ## Contributing
