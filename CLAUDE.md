@@ -225,7 +225,7 @@ The system implements a comprehensive state machine with 6 states:
 ## Development Workflow
 
 ### Design-First Approach
-The project follows a **design-first, test-driven development workflow** using three specialized Claude Code agents:
+The project follows a **design-first, test-driven development workflow** using four specialized Claude Code agents:
 
 1. **Create design document** in `designs/` directory using `designs/TEMPLATE.md`
 2. **Review design** with Claude to identify edge cases and unclear areas
@@ -240,7 +240,7 @@ The project follows a **design-first, test-driven development workflow** using t
 
 See `DEVELOPMENT_WORKFLOW.md` for complete workflow guide.
 
-### The Three-Agent System
+### The Four-Agent System
 
 **design-implementer** (Coordinator):
 - Implements features from design documents
@@ -261,6 +261,16 @@ See `DEVELOPMENT_WORKFLOW.md` for complete workflow guide.
 - Adds devlog.md entries with original user prompts
 - Ensures documentation consistency
 - Located: `.claude/agents/doc-maintainer.md`
+
+**self-improver** (Meta-Learning Specialist):
+- Analyzes past Claude Code sessions for patterns
+- Identifies what works well and what doesn't (evidence-based)
+- Proposes specific improvements to workflow and agents
+- Highly interactive - gets user feedback and approval
+- Enables continuous workflow evolution
+- Located: `.claude/agents/self-improver.md`
+- Uses: `utils/analyze_sessions.py` and `utils/extract_claude_session_prompts.py`
+- Run periodically: Every 10-20 sessions for continuous improvement
 
 ### Testing Requirements
 - **Write tests first** for new functionality (TDD approach)
@@ -359,3 +369,38 @@ The `designs/` directory contains comprehensive design documents:
 - `file-store.md` - Data storage architecture and paper states - **implemented**
 - `user-stories.md` - High-level user operations and workflows - **partially implemented**
 - `improved-pagination.md` - Single-key pagination design - **implemented**
+
+### Development Utilities
+
+The `utils/` directory contains scripts for workflow analysis and improvement:
+
+**`utils/analyze_sessions.py`** - Session pattern analysis
+- Analyzes Claude Code session history for efficiency patterns
+- Categorizes sessions by type (design, bug fix, agent workflow, etc.)
+- Calculates metrics (prompts per session, efficiency by type)
+- Identifies patterns and anti-patterns
+- Generates insights and recommendations
+- Used by self-improver agent for evidence-based improvements
+- Usage:
+  ```bash
+  python utils/analyze_sessions.py . --max-sessions 20
+  python utils/analyze_sessions.py . --insights-only
+  python utils/analyze_sessions.py . --output analysis.txt
+  ```
+
+**`utils/extract_claude_session_prompts.py`** - Prompt extraction
+- Extracts user prompts from session JSONL files
+- Shows chronological prompt history (oldest first)
+- Displays first 500 chars of each prompt
+- Useful for understanding specific sessions
+- Complements analyze_sessions.py with detailed view
+- Usage:
+  ```bash
+  python utils/extract_claude_session_prompts.py . --max-sessions 10
+  ```
+
+These tools enable:
+- **Evidence-based workflow improvement**: Decisions based on actual usage data
+- **Pattern identification**: What works well vs what causes inefficiency
+- **Continuous evolution**: Systematic refinement over time
+- **Self-awareness**: Understanding how the workflow is being used in practice

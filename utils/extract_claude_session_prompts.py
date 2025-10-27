@@ -17,8 +17,8 @@ def project_dir_to_claude_dir(project_path):
     Convert a project directory path to the Claude session history directory name.
 
     Example:
-        /Users/jfischer/code/my-research-assistant
-        -> -Users-jfischer-code-my-research-assistant
+        /Users/joe/code/my-research-assistant
+        -> -Users-joe-code-my-research-assistant
     """
     abs_path = os.path.abspath(project_path)
     # Remove leading / and replace remaining / with -
