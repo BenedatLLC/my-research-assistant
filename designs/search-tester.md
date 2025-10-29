@@ -42,6 +42,11 @@ Here are the command line arguments, which should be parsed via `argparse`:
   Range: 0.0 (maximum diversity) to 1.0 (maximum relevance). Default is 0.5.
   Only valid if --use-mmr is specified.
 
+--papers-only
+  If specified, display results as a simple table with paper metadata only (no chunk content).
+  Shows: result number, paper ID, chunk number (page), chunk length, and paper title.
+  Orthogonal to other parameters (works with --summary, --papers, --use-mmr, etc.).
+
 QUERY
   The text to use as the search query.
 ```
@@ -55,6 +60,8 @@ uv run search-tester [OPTIONS] QUERY
 ```
 
 ## Output
+
+### Default Output (Paginated)
 The output should be paginated using `rich`, like we do for paper markdown. The output
 should have a summary section and the detailed chunks. The summary section should have:
 - original query text
@@ -69,6 +76,17 @@ For each result show:
 - page number of chunk
 - total size of chunk
 - content of chunk - formatted using markdown if possible
+
+### Papers-Only Output (Table)
+When `--papers-only` is specified, display a simplified table with:
+- Result number (sequential, 1-indexed)
+- Paper ID (ArXiv identifier)
+- Chunk number (page number where chunk appears)
+- Chunk length (character count)
+- Paper title
+
+This mode is orthogonal to other parameters and works with all search types (content index,
+summary index, and filtered content search).
 
 ## Implementation
 

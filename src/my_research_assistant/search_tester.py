@@ -14,6 +14,7 @@ import sys
 from typing import List
 from rich.console import Console
 from rich.markdown import Markdown
+from rich.table import Table
 
 from . import constants
 from .file_locations import FILE_LOCATIONS
@@ -79,6 +80,12 @@ def parse_arguments(args: List[str] = None) -> argparse.Namespace:
         type=float,
         default=constants.CONTENT_SEARCH_MMR_ALPHA,
         help=f'MMR alpha parameter (0.0-1.0, default: {constants.CONTENT_SEARCH_MMR_ALPHA}). Only valid with --use-mmr'
+    )
+
+    parser.add_argument(
+        '--papers-only',
+        action='store_true',
+        help='Display results as a simple table with paper ID, chunk length, and title (no content)'
     )
 
     parser.add_argument(
@@ -171,6 +178,35 @@ def format_summary_header(
     ])
 
     return '\n'.join(header_lines)
+
+
+def format_papers_only_table(results: List[SearchResult]) -> Table:
+    """
+    Format search results as a simple table showing paper metadata only.
+
+    Args:
+        results: List of SearchResult objects to format
+
+    Returns:
+        Rich Table with result number, paper ID, chunk number (page), chunk length, and title
+    """
+    table = Table(show_header=True, header_style="bold cyan")
+    table.add_column("#", style="dim", width=4)
+    table.add_column("Paper ID", style="cyan")
+    table.add_column("Chunk #", justify="right", style="yellow")
+    table.add_column("Chunk Length", justify="right", style="magenta")
+    table.add_column("Title", style="green")
+
+    for i, result in enumerate(results, start=1):
+        table.add_row(
+            str(i),
+            result.paper_id,
+            str(result.page),
+            str(len(result.chunk)),
+            result.paper_title
+        )
+
+    return table
 
 
 def format_search_result(result: SearchResult, result_number: int, search_type: str) -> str:
@@ -273,35 +309,44 @@ def main() -> None:
         print(f"❌ Unexpected error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Format results for display
-    output_lines = []
-
-    # Calculate unique papers
-    unique_papers = len(set(result.paper_id for result in results))
-
-    # Add summary header
-    header = format_summary_header(
-        query=args.query,
-        function_name=function_name,
-        k=k,
-        similarity_threshold=args.content_similarity_threshold,
-        use_mmr=args.use_mmr,
-        mmr_alpha=mmr_alpha,
-        num_results=len(results),
-        num_unique_papers=unique_papers
-    )
-    output_lines.extend(header.split('\n'))
-
-    # Add formatted results
-    for i, result in enumerate(results, start=1):
-        formatted_result = format_search_result(result, i, search_type)
-        output_lines.extend(formatted_result.split('\n'))
-
-    # Display with pagination
     console = Console()
-    paginator = TextPaginator(console)
-    title = f"🔍 Search Results: {args.query}"
-    paginator.paginate_lines(output_lines, title=title)
+
+    # Check if papers-only mode is enabled
+    if args.papers_only:
+        # Display results as a simple table
+        table = format_papers_only_table(results)
+        console.print(f"\n🔍 Search Results: {args.query}")
+        console.print(f"Found {len(results)} results\n")
+        console.print(table)
+    else:
+        # Format results for paginated display
+        output_lines = []
+
+        # Calculate unique papers
+        unique_papers = len(set(result.paper_id for result in results))
+
+        # Add summary header
+        header = format_summary_header(
+            query=args.query,
+            function_name=function_name,
+            k=k,
+            similarity_threshold=args.content_similarity_threshold,
+            use_mmr=args.use_mmr,
+            mmr_alpha=mmr_alpha,
+            num_results=len(results),
+            num_unique_papers=unique_papers
+        )
+        output_lines.extend(header.split('\n'))
+
+        # Add formatted results
+        for i, result in enumerate(results, start=1):
+            formatted_result = format_search_result(result, i, search_type)
+            output_lines.extend(formatted_result.split('\n'))
+
+        # Display with pagination
+        paginator = TextPaginator(console)
+        title = f"🔍 Search Results: {args.query}"
+        paginator.paginate_lines(output_lines, title=title)
 
 
 if __name__ == '__main__':
