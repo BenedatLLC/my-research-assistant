@@ -346,28 +346,33 @@ def _arxiv_keyword_search(query:str, max_results:int) -> list[PaperMetadata]:
     search = arxiv.Search(query=query, max_results=max_results)
     metadata_results = []
     mappings = get_category_mappings()
-    for result in client.results(search):
-        paper_id = result.get_short_id()
-        if result.pdf_url is None:
-            raise Exception(f"❌ No pdf url found for paper {paper_id}")
-        primary: str = map_category(result.primary_category, mappings)
-        other_categories: list[str] = [map_category(c, mappings) for c in result.categories
-                                      if c != result.primary_category]
-        all_categories = [primary] + other_categories
+    try:
+        for result in client.results(search):
+            paper_id = result.get_short_id()
+            if result.pdf_url is None:
+                raise Exception(f"❌ No pdf url found for paper {paper_id}")
+            primary: str = map_category(result.primary_category, mappings)
+            other_categories: list[str] = [map_category(c, mappings) for c in result.categories
+                                          if c != result.primary_category]
+            all_categories = [primary] + other_categories
 
-        metadata_results.append(PaperMetadata(
-            paper_id=paper_id,
-            title=result.title,
-            published=result.published,
-            updated=result.updated,
-            paper_abs_url=result.entry_id,
-            paper_pdf_url=result.pdf_url,
-            authors=[a.name for a in result.authors],
-            abstract=result.summary,
-            categories=all_categories,
-            doi=result.doi,
-            journal_ref=result.journal_ref,
-        ))
+            metadata_results.append(PaperMetadata(
+                paper_id=paper_id,
+                title=result.title,
+                published=result.published,
+                updated=result.updated,
+                paper_abs_url=result.entry_id,
+                paper_pdf_url=result.pdf_url,
+                authors=[a.name for a in result.authors],
+                abstract=result.summary,
+                categories=all_categories,
+                doi=result.doi,
+                journal_ref=result.journal_ref,
+            ))
+    except arxiv.UnexpectedEmptyPageError as e:
+        # ArXiv API sometimes returns empty pages when fetching additional results
+        # This is a known issue - just log and return what we've collected so far
+        logging.warning(f"ArXiv API returned unexpected empty page, returning {len(metadata_results)} results collected so far")
     return metadata_results
 
 

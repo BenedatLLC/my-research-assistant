@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/claude) when working with code in this repository.
 
 ## Project Overview
 
@@ -40,6 +40,31 @@ chat
 uv run chat
 uv run python -m my_research_assistant
 ```
+
+### Development/Testing Tools
+```bash
+# Test search APIs directly (bypasses chat interface)
+uv run search-tester "your query here"
+
+# Search summary index
+uv run search-tester --summary "transformers"
+
+# Search specific papers
+uv run search-tester --papers 2503.12345,2503.67890 "optimization"
+
+# Use MMR for diversity
+uv run search-tester --use-mmr --mmr-alpha 0.7 "neural networks"
+
+# Adjust parameters
+uv run search-tester -k 30 --content-similarity-threshold 0.7 "deep learning"
+```
+
+The `search-tester` script provides direct access to the three search functions in `vector_store.py`:
+- `search_index` - Content index search (default)
+- `search_summary_index` - Summary index search (--summary flag)
+- `search_content_index_filtered` - Filtered content search (--papers flag)
+
+All default parameter values are sourced from `constants.py` for consistency with the main application.
 
 ### Interactive Chat Interface
 The `chat` command launches a rich terminal interface with:

@@ -1,13 +1,39 @@
 # Development log
 
 ## TODO
-* When indexing a file, be sure to skip steps that have already been completed. For example,
-  it seems like summaries get re-indexed each time. Also, is the index truely idempotent?
-  * We may want a --verbose option to print more details
 * improve the deep research
 * Finish the notes command
 * chat interface with intent detection
 * Handle "old-style" arxiv ids that contain a "/"
+
+## Sunday Oct 26, 2025
+
+### Search Tester Script
+
+Implemented command-line tool for testing and debugging search APIs in `vector_store.py`.
+
+**Context:** User requested "Add a command line script to test the search APIs."
+
+**What was added:**
+- `search_tester.py` script with argparse CLI for testing three search functions
+- Comprehensive command-line flags: --summary, --papers, -k, --content-similarity-threshold, --use-mmr, --mmr-alpha
+- Rich output formatting with markdown rendering and pagination via TextPaginator
+- Automatic k value adjustment based on search type (20 for content, 5 for summary)
+- Validation logic for mutually exclusive flags and parameter ranges
+- Script registered in pyproject.toml as `uv run search-tester`
+
+**Test coverage:**
+- 23 tests total (11 unit, 7 integration, 3 E2E)
+- All formatting functions independently tested
+- All validation rules tested
+- Error handling tested (IndexError, RetrievalError)
+- All 382 tests in suite passing
+
+**Original user prompt:** "Add a command line script to test the search APIs"
+
+## Saturday Oct 25, 2025
+- Finished implementation and fine-tuning of logging and error reporiting
+- Fixed bug where OpenAI object was instantiated directly rather than using the APIs in `models.py`
 
 ## Wednesday Oct 23, 2025
 

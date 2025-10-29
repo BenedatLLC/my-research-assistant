@@ -264,6 +264,36 @@ System maintenance and utilities.
 | `summarize-all` | Generate summaries for all papers | Any state |
 | `validate-store` | Check repository integrity | Any state |
 
+### Development/Testing Commands
+Tools for testing and debugging search functionality.
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `uv run search-tester [OPTIONS] QUERY` | Test search APIs directly | `uv run search-tester "neural networks"` |
+
+**search-tester options:**
+- `--summary` - Search the summary index instead of content index
+- `--papers PAPER_IDS` - Filter search to specific papers (comma-separated)
+- `-k N` - Number of chunks to return (default: 20 for content, 5 for summary)
+- `--content-similarity-threshold T` - Minimum similarity score (0.0-1.0, default: 0.6)
+- `--use-mmr` - Use Maximum Marginal Relevance for diversity
+- `--mmr-alpha A` - MMR alpha parameter (0.0-1.0, default: 0.5, requires --use-mmr)
+
+**Examples:**
+```bash
+# Search content index
+uv run search-tester "attention mechanisms"
+
+# Search summary index with custom k
+uv run search-tester --summary -k 10 "transformers"
+
+# Search specific papers with MMR
+uv run search-tester --papers 2503.12345,2503.67890 --use-mmr "optimization"
+
+# Adjust similarity threshold
+uv run search-tester --content-similarity-threshold 0.7 "deep learning"
+```
+
 ### System Commands
 Available from any state.
 
