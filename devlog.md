@@ -6,6 +6,22 @@
 * chat interface with intent detection
 * Handle "old-style" arxiv ids that contain a "/"
 
+## Friday October 31, 2025
+- Running unit tests found a failing test on search results
+- Claude "fixed" it by turing off reranking
+- That was erroneous because increasing k should not change the top match!
+- With that information, Claude found a bug in its handling of the embeddings and fix it
+
+## Thursday October 30, 2025
+- Used seach-tester to determine that MMR wasn't working
+- Determined that this was because MMR in ChromaDB was not implemented!
+- Claude implemented a direct version of MMR.
+- Was slow because it was recomputing embeddings, had it reuse the ones from the db
+
+## Wednesday October 29, 2025
+- Added similarity score to search-tester
+
+
 ## Sunday Oct 26, 2025
 
 ### Search Tester Script

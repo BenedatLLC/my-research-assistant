@@ -3,10 +3,11 @@ import datetime
 import logging
 from os.path import isdir, exists, join
 from shutil import rmtree
-from typing import Optional
+from typing import Optional, List
+import numpy as np
 import chromadb
 from llama_index.core import SimpleDirectoryReader, VectorStoreIndex, StorageContext
-from llama_index.core.schema import Document
+from llama_index.core.schema import Document, NodeWithScore
 from llama_index.vector_stores.chroma import ChromaVectorStore
 import pymupdf4llm
 
@@ -30,6 +31,165 @@ class IndexError(Exception):
 
 class RetrievalError(Exception):
     pass
+
+
+def _apply_mmr_reranking(
+    nodes: List[NodeWithScore],
+    query_embedding: List[float],
+    alpha: float,
+    top_k: int,
+    vector_store: ChromaVectorStore,
+    group_by_field: str = "paper_id"
+) -> List[NodeWithScore]:
+    """
+    Apply Maximal Marginal Relevance (MMR) reranking to diversify results.
+
+    Since ChromaDB's LlamaIndex integration doesn't support MMR natively, we implement
+    it ourselves. This version is diversity-aware and groups results by a metadata field
+    (e.g., paper_id) to ensure we get diverse results across different documents.
+
+    MMR formula: Score = alpha * query_similarity - (1-alpha) * max_similarity_to_selected
+
+    Parameters
+    ----------
+    nodes : List[NodeWithScore]
+        Initial ranked results from similarity search
+    query_embedding : List[float]
+        The query embedding vector
+    alpha : float
+        Balance between relevance (1.0) and diversity (0.0)
+        - 1.0 = pure relevance (no diversity)
+        - 0.0 = pure diversity (no relevance)
+        - 0.5 = balanced
+    top_k : int
+        Number of results to return after reranking
+    vector_store : ChromaVectorStore
+        The vector store to retrieve embeddings from
+    group_by_field : str
+        Metadata field to use for diversity grouping (default: "paper_id")
+
+    Returns
+    -------
+    List[NodeWithScore]
+        Reranked results with improved diversity
+    """
+    if len(nodes) == 0:
+        return nodes
+
+    if alpha == 1.0:
+        # Pure relevance, no need to rerank
+        return nodes[:top_k]
+
+    # Get embeddings for all candidate nodes from ChromaDB
+    # This is much faster than recomputing embeddings
+    node_embeddings = []
+    node_ids = [node.node.node_id for node in nodes]
+
+    try:
+        # Retrieve embeddings from ChromaDB in bulk
+        chroma_collection = vector_store._collection
+        result = chroma_collection.get(
+            ids=node_ids,
+            include=["embeddings"]
+        )
+
+        # ChromaDB does NOT preserve request order - we need to match IDs manually
+        if result is not None and "embeddings" in result and result["embeddings"] is not None and "ids" in result:
+            # Create a mapping from ID to embedding
+            id_to_embedding = {
+                result_id: embedding
+                for result_id, embedding in zip(result["ids"], result["embeddings"])
+            }
+
+            # Get embeddings in the same order as our nodes
+            node_embeddings = []
+            for node_id in node_ids:
+                if node_id in id_to_embedding:
+                    node_embeddings.append(id_to_embedding[node_id])
+                else:
+                    raise ValueError(f"Node ID {node_id} not found in ChromaDB results")
+
+            logger.debug(f"Retrieved {len(node_embeddings)} embeddings from ChromaDB for MMR")
+        else:
+            raise ValueError("No embeddings returned from ChromaDB")
+
+    except Exception as e:
+        # Fallback: compute embeddings if retrieval fails
+        logger.warning(f"Failed to retrieve embeddings from ChromaDB ({e}), computing them instead")
+        from llama_index.core import Settings
+
+        for node in nodes:
+            # Check if embedding is already available in the node
+            if hasattr(node.node, 'embedding') and node.node.embedding is not None:
+                node_embeddings.append(node.node.embedding)
+            else:
+                # Compute embedding for this node's text
+                text = node.node.get_content()
+                embedding = Settings.embed_model.get_text_embedding(text)
+                node_embeddings.append(embedding)
+
+        logger.debug(f"Computed {len(node_embeddings)} embeddings for MMR")
+
+    # Convert to numpy arrays for efficient computation
+    query_emb = np.array(query_embedding)
+    candidate_embs = np.array(node_embeddings)
+
+    # Normalize embeddings for cosine similarity
+    query_emb = query_emb / (np.linalg.norm(query_emb) + 1e-10)
+    candidate_embs = candidate_embs / (np.linalg.norm(candidate_embs, axis=1, keepdims=True) + 1e-10)
+
+    # Calculate query similarities (these should match the original scores, but we recalculate for consistency)
+    query_similarities = candidate_embs @ query_emb
+
+    # MMR selection
+    selected_indices = []
+    selected_groups = set()  # Track which groups (e.g., paper_ids) we've selected from
+    remaining_indices = list(range(len(nodes)))
+
+    while len(selected_indices) < top_k and remaining_indices:
+        if len(selected_indices) == 0:
+            # First selection: pick highest query similarity
+            best_idx = remaining_indices[np.argmax(query_similarities[remaining_indices])]
+        else:
+            # Subsequent selections: apply MMR formula
+            mmr_scores = []
+            selected_embs = candidate_embs[selected_indices]
+
+            for idx in remaining_indices:
+                # Relevance component: similarity to query
+                relevance = query_similarities[idx]
+
+                # Diversity component: max similarity to any selected document
+                candidate_emb = candidate_embs[idx:idx+1]  # Keep dims for broadcasting
+                similarities_to_selected = (candidate_emb @ selected_embs.T).flatten()
+                max_sim_to_selected = np.max(similarities_to_selected)
+
+                # Diversity bonus: prefer documents from unselected groups
+                group_value = nodes[idx].node.metadata.get(group_by_field)
+                diversity_bonus = 0.0 if group_value in selected_groups else 0.1
+
+                # MMR score with group diversity bonus
+                mmr_score = alpha * relevance - (1 - alpha) * max_sim_to_selected + diversity_bonus
+                mmr_scores.append((idx, mmr_score))
+
+            # Select the candidate with highest MMR score
+            best_idx = max(mmr_scores, key=lambda x: x[1])[0]
+
+        # Add to selected
+        selected_indices.append(best_idx)
+        remaining_indices.remove(best_idx)
+
+        # Track the group
+        group_value = nodes[best_idx].node.metadata.get(group_by_field)
+        if group_value:
+            selected_groups.add(group_value)
+
+    # Return reranked nodes
+    reranked_nodes = [nodes[i] for i in selected_indices]
+
+    logger.info(f"MMR reranking: selected from {len(selected_groups)} unique {group_by_field} values")
+
+    return reranked_nodes
 
 
 def _get_chroma_db_path(file_locations: FileLocations, index_type: str = "content") -> str:
@@ -701,45 +861,43 @@ def search_index(query:str, k:int=constants.CONTENT_SEARCH_K, file_locations:Fil
     # Configure retriever with enhanced options
     from llama_index.core.vector_stores.types import VectorStoreQueryMode
     from llama_index.core.postprocessor import SimilarityPostprocessor
+    from llama_index.core import Settings
 
     if use_mmr:
-        try:
-            # First try MMR for diverse results
-            retriever = content_index.as_retriever(
-                similarity_top_k=k,
-                vector_store_query_mode=VectorStoreQueryMode.MMR,
-                alpha=mmr_alpha
-            )
-            chunks = retriever.retrieve(query)
+        # Retrieve more candidates than needed for MMR reranking
+        # MMR needs a larger pool to select diverse results from
+        candidate_k = min(k * 3, 100)  # Retrieve 3x results, capped at 100
 
-            # Check if MMR actually provided diversity
-            paper_ids_found = set()
-            for chunk in chunks:
-                paper_ids_found.add(chunk.metadata.get('paper_id'))
-
-            # If we only found 1 paper and the query suggests we should find more,
-            # use manual diversity
-            compound_indicators = ['compare', 'versus', 'vs', 'and', 'both', 'between']
-            is_compound_query = any(indicator in query.lower() for indicator in compound_indicators)
-
-            if len(paper_ids_found) == 1 and is_compound_query:
-                print(f"MMR found only 1 paper for compound query, using manual diversity strategy...")
-                chunks = _retrieve_with_manual_diversity(content_index, query, k, similarity_cutoff)
-
-        except Exception:
-            # Fallback to manual diversity approach if MMR fails
-            print("MMR mode not supported, using manual diversity strategy...")
-            chunks = _retrieve_with_manual_diversity(content_index, query, k, similarity_cutoff)
-    else:
-        # Use hybrid search as alternative
         retriever = content_index.as_retriever(
-            similarity_top_k=k,
-            vector_store_query_mode=VectorStoreQueryMode.HYBRID
+            similarity_top_k=candidate_k
+        )
+        candidate_chunks = retriever.retrieve(query)
+
+        logger.debug(f"Retrieved {len(candidate_chunks)} candidates for MMR reranking")
+
+        # Get query embedding for MMR calculation
+        query_embedding = Settings.embed_model.get_query_embedding(query)
+
+        # Apply our custom MMR reranking
+        chunks = _apply_mmr_reranking(
+            nodes=candidate_chunks,
+            query_embedding=query_embedding,
+            alpha=mmr_alpha,
+            top_k=k,
+            vector_store=content_index.vector_store,
+            group_by_field="paper_id"
+        )
+
+        logger.info(f"MMR reranking complete: {len(chunks)} results from pool of {len(candidate_chunks)}")
+    else:
+        # Use default similarity search
+        retriever = content_index.as_retriever(
+            similarity_top_k=k
         )
         chunks = retriever.retrieve(query)
 
-    # Apply similarity filtering if cutoff is specified and we haven't done manual diversity
-    if similarity_cutoff > 0 and not (use_mmr and 'manual diversity' in str(chunks)):
+    # Apply similarity filtering if cutoff is specified
+    if similarity_cutoff > 0:
         postprocessor = SimilarityPostprocessor(similarity_cutoff=similarity_cutoff)
         chunks = postprocessor.postprocess_nodes(chunks)
 

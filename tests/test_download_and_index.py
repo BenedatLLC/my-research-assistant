@@ -187,6 +187,7 @@ def test_search_index_different_k_values(temp_file_locations):
     vs.index_file(md, temp_file_locations)
     
     # Test with different k values
+    # After fixing the ChromaDB ordering bug, MMR now correctly preserves the top result
     results_k1 = vs.search_index('agent safety', k=1, file_locations=temp_file_locations)
     results_k5 = vs.search_index('agent safety', k=5, file_locations=temp_file_locations)
     results_k10 = vs.search_index('agent safety', k=10, file_locations=temp_file_locations)
