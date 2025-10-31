@@ -188,12 +188,13 @@ def format_papers_only_table(results: List[SearchResult]) -> Table:
         results: List of SearchResult objects to format
 
     Returns:
-        Rich Table with result number, paper ID, chunk number (page), chunk length, and title
+        Rich Table with result number, paper ID, chunk number (page), similarity score, chunk length, and title
     """
     table = Table(show_header=True, header_style="bold cyan")
     table.add_column("#", style="dim", width=4)
     table.add_column("Paper ID", style="cyan")
     table.add_column("Chunk #", justify="right", style="yellow")
+    table.add_column("Similarity", justify="right", style="blue")
     table.add_column("Chunk Length", justify="right", style="magenta")
     table.add_column("Title", style="green")
 
@@ -202,6 +203,7 @@ def format_papers_only_table(results: List[SearchResult]) -> Table:
             str(i),
             result.paper_id,
             str(result.page),
+            f"{result.similarity_score:.4f}",
             str(len(result.chunk)),
             result.paper_title
         )
@@ -231,6 +233,7 @@ def format_search_result(result: SearchResult, result_number: int, search_type: 
         f"**Title:** {result.paper_title}",
         f"**File:** {filename}",
         f"**Page:** {result.page}",
+        f"**Similarity Score:** {result.similarity_score:.4f}",
         f"**Size:** {len(result.chunk)} characters",
         "",
         "**Content:**",

@@ -81,7 +81,8 @@ class TestSemanticSearchWorkflow:
                 summary_filename="2412.19437v2.md",
                 paper_title="DeepSeek-V3 Technical Report",
                 page=1,
-                chunk="DeepSeek-V3 is a powerful language model..."
+                chunk="DeepSeek-V3 is a powerful language model...",
+                similarity_score=0.9234
             ),
             SearchResult(
                 paper_id="2507.20534v1",
@@ -89,7 +90,8 @@ class TestSemanticSearchWorkflow:
                 summary_filename="2507.20534v1.md",
                 paper_title="Kimi K2: Open Agentic Intelligence",
                 page=1,
-                chunk="Kimi K2 represents an advancement in agentic AI..."
+                chunk="Kimi K2 represents an advancement in agentic AI...",
+                similarity_score=0.8876
             )
         ]
 
@@ -152,7 +154,8 @@ Both models demonstrate significant advances in their respective areas."""
                 summary_filename="2412.19437v2.md",
                 paper_title="DeepSeek-V3 Technical Report",
                 page=5,
-                chunk="DeepSeek-V3 achieves state-of-the-art performance across multiple benchmarks..."
+                chunk="DeepSeek-V3 achieves state-of-the-art performance across multiple benchmarks...",
+                similarity_score=0.8765
             ),
             SearchResult(
                 paper_id="2507.20534v1",
@@ -160,7 +163,8 @@ Both models demonstrate significant advances in their respective areas."""
                 summary_filename="2507.20534v1.md",
                 paper_title="Kimi K2: Open Agentic Intelligence",
                 page=3,
-                chunk="Kimi K2 introduces novel agentic capabilities for complex reasoning tasks..."
+                chunk="Kimi K2 introduces novel agentic capabilities for complex reasoning tasks...",
+                similarity_score=0.8543
             )
         ]
 

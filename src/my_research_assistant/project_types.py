@@ -42,3 +42,4 @@ class SearchResult(BaseModel):
     paper_title: str = Field(description="Title of the paper")
     page: int = Field(description="Page number of chunk")
     chunk: str = Field(description="Chunk of text from paper")
+    similarity_score: float = Field(description="Similarity score from vector search (0.0-1.0)")

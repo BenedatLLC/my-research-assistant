@@ -231,7 +231,8 @@ def test_format_search_result():
         summary_filename="2503.12345.md",
         paper_title="Test Paper on Machine Learning",
         page=5,
-        chunk="This is a test chunk about neural networks."
+        chunk="This is a test chunk about neural networks.",
+        similarity_score=0.8542
     )
 
     formatted = format_search_result(result, result_number=1, search_type="content")
@@ -253,7 +254,8 @@ def test_format_search_result_summary_index():
         summary_filename="2503.67890.md",
         paper_title="Another Test Paper",
         page=0,  # Summaries don't have pages
-        chunk="Summary content here."
+        chunk="Summary content here.",
+        similarity_score=0.9123
     )
 
     formatted = format_search_result(result, result_number=2, search_type="summary")
@@ -269,15 +271,15 @@ def test_unique_papers_count_with_multiple_chunks():
         # Return 5 results from only 2 unique papers
         mock_search.return_value = [
             SearchResult(paper_id="2503.12345", pdf_filename="2503.12345v1.pdf",
-                        summary_filename="2503.12345.md", paper_title="Paper 1", page=1, chunk="chunk 1"),
+                        summary_filename="2503.12345.md", paper_title="Paper 1", page=1, chunk="chunk 1", similarity_score=0.95),
             SearchResult(paper_id="2503.12345", pdf_filename="2503.12345v1.pdf",
-                        summary_filename="2503.12345.md", paper_title="Paper 1", page=2, chunk="chunk 2"),
+                        summary_filename="2503.12345.md", paper_title="Paper 1", page=2, chunk="chunk 2", similarity_score=0.90),
             SearchResult(paper_id="2503.67890", pdf_filename="2503.67890v1.pdf",
-                        summary_filename="2503.67890.md", paper_title="Paper 2", page=1, chunk="chunk 3"),
+                        summary_filename="2503.67890.md", paper_title="Paper 2", page=1, chunk="chunk 3", similarity_score=0.85),
             SearchResult(paper_id="2503.12345", pdf_filename="2503.12345v1.pdf",
-                        summary_filename="2503.12345.md", paper_title="Paper 1", page=3, chunk="chunk 4"),
+                        summary_filename="2503.12345.md", paper_title="Paper 1", page=3, chunk="chunk 4", similarity_score=0.80),
             SearchResult(paper_id="2503.67890", pdf_filename="2503.67890v1.pdf",
-                        summary_filename="2503.67890.md", paper_title="Paper 2", page=2, chunk="chunk 5"),
+                        summary_filename="2503.67890.md", paper_title="Paper 2", page=2, chunk="chunk 5", similarity_score=0.75),
         ]
 
         with patch('sys.argv', ['search-tester', 'test query']):
@@ -306,7 +308,8 @@ def test_main_calls_search_index(mock_search_index):
             summary_filename="2503.12345.md",
             paper_title="Test Paper",
             page=1,
-            chunk="Test content"
+            chunk="Test content",
+            similarity_score=0.8765
         )
     ]
 
@@ -393,7 +396,8 @@ def test_e2e_content_search_workflow():
                 summary_filename="2503.12345.md",
                 paper_title="Test Paper",
                 page=1,
-                chunk="Test content about transformers"
+                chunk="Test content about transformers",
+                similarity_score=0.8765
             )
         ]
 
@@ -423,7 +427,8 @@ def test_e2e_summary_search_workflow():
                 summary_filename="2503.67890.md",
                 paper_title="Another Paper",
                 page=0,
-                chunk="Summary about neural networks"
+                chunk="Summary about neural networks",
+                similarity_score=0.9234
             )
         ]
 

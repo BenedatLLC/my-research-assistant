@@ -748,6 +748,11 @@ def search_index(query:str, k:int=constants.CONTENT_SEARCH_K, file_locations:Fil
         try:
             paper_id = chunk.metadata['paper_id']
             summary_filename = paper_id + '.md'
+
+            # Extract similarity score from chunk
+            if not hasattr(chunk, 'score') or chunk.score is None:
+                raise RetrievalError(f"Chunk for paper {paper_id} is missing similarity score")
+
             results.append(SearchResult(
                 paper_id=paper_id,
                 pdf_filename = chunk.metadata['file_name'],
@@ -757,7 +762,8 @@ def search_index(query:str, k:int=constants.CONTENT_SEARCH_K, file_locations:Fil
                                    else None,
                 paper_title = chunk.metadata['title'],
                 page=int(chunk.metadata['page_label']),
-                chunk=chunk.text
+                chunk=chunk.text,
+                similarity_score=chunk.score
             ))
         except Exception as e:
             raise RetrievalError(f"Got an error processing chunk with metadata {chunk.metadata}") from e
@@ -851,6 +857,10 @@ def search_summary_index(query:str, k:int=constants.SUMMARY_SEARCH_K, file_locat
             # Instead, we use the source type to indicate what was matched
             source_type = chunk.metadata.get('source_type', 'summary')
 
+            # Extract similarity score from chunk
+            if not hasattr(chunk, 'score') or chunk.score is None:
+                raise RetrievalError(f"Chunk for paper {paper_id} is missing similarity score")
+
             results.append(SearchResult(
                 paper_id=paper_id,
                 pdf_filename = f"{paper_id}.pdf",  # Construct PDF filename
@@ -860,7 +870,8 @@ def search_summary_index(query:str, k:int=constants.SUMMARY_SEARCH_K, file_locat
                                    else None,
                 paper_title = chunk.metadata['title'],
                 page=1,  # Summary/notes don't have page numbers
-                chunk=f"[{source_type.upper()}] {chunk.text}"  # Prefix with source type
+                chunk=f"[{source_type.upper()}] {chunk.text}",  # Prefix with source type
+                similarity_score=chunk.score
             ))
         except Exception as e:
             raise RetrievalError(f"Got an error processing chunk with metadata {chunk.metadata}") from e
@@ -964,6 +975,11 @@ def search_content_index_filtered(query: str, paper_ids: list[str], k: int = con
         try:
             paper_id = chunk.metadata['paper_id']
             summary_filename = paper_id + '.md'
+
+            # Extract similarity score from chunk
+            if not hasattr(chunk, 'score') or chunk.score is None:
+                raise RetrievalError(f"Chunk for paper {paper_id} is missing similarity score")
+
             results.append(SearchResult(
                 paper_id=paper_id,
                 pdf_filename=chunk.metadata['file_name'],
@@ -973,7 +989,8 @@ def search_content_index_filtered(query: str, paper_ids: list[str], k: int = con
                                    else None,
                 paper_title=chunk.metadata['title'],
                 page=int(chunk.metadata['page_label']),
-                chunk=chunk.text
+                chunk=chunk.text,
+                similarity_score=chunk.score
             ))
         except Exception as e:
             raise RetrievalError(f"Got an error processing chunk with metadata {chunk.metadata}") from e

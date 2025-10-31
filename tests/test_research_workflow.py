@@ -130,7 +130,8 @@ def sample_search_results(sample_papers):
             summary_filename="2503.22738.md",
             paper_title="ShieldAgent: Shielding Agents via Verifiable Safety Policy Reasoning",
             page=5,
-            chunk="The ShieldAgent framework uses multiple verification layers..."
+            chunk="The ShieldAgent framework uses multiple verification layers...",
+            similarity_score=0.9123
         ),
         SearchResult(
             paper_id="2503.22738",
@@ -138,7 +139,8 @@ def sample_search_results(sample_papers):
             summary_filename="2503.22738.md",
             paper_title="ShieldAgent: Shielding Agents via Verifiable Safety Policy Reasoning",
             page=7,
-            chunk="Safety policies are verified through formal reasoning methods..."
+            chunk="Safety policies are verified through formal reasoning methods...",
+            similarity_score=0.8765
         ),
         SearchResult(
             paper_id="2503.22739",
@@ -146,7 +148,8 @@ def sample_search_results(sample_papers):
             summary_filename="2503.22739.md",
             paper_title="Safe AI Systems Through Multi-Agent Verification",
             page=3,
-            chunk="Multi-agent systems provide redundant safety checks..."
+            chunk="Multi-agent systems provide redundant safety checks...",
+            similarity_score=0.8234
         )
     ]
 
@@ -353,7 +356,8 @@ async def test_research_query_multiple_papers(mock_llm, mock_interface, temp_fil
             summary_filename="2503.22738.md",
             paper_title="Paper A",
             page=1,
-            chunk="Content from paper A, page 1"
+            chunk="Content from paper A, page 1",
+            similarity_score=0.95
         ),
         SearchResult(
             paper_id="2503.22738",
@@ -361,7 +365,8 @@ async def test_research_query_multiple_papers(mock_llm, mock_interface, temp_fil
             summary_filename="2503.22738.md",
             paper_title="Paper A",
             page=2,
-            chunk="Content from paper A, page 2"
+            chunk="Content from paper A, page 2",
+            similarity_score=0.90
         ),
         SearchResult(
             paper_id="2503.22739",
@@ -369,7 +374,8 @@ async def test_research_query_multiple_papers(mock_llm, mock_interface, temp_fil
             summary_filename="2503.22739.md",
             paper_title="Paper B",
             page=1,
-            chunk="Content from paper B, page 1"
+            chunk="Content from paper B, page 1",
+            similarity_score=0.85
         ),
         SearchResult(
             paper_id="2503.22740",
@@ -377,7 +383,8 @@ async def test_research_query_multiple_papers(mock_llm, mock_interface, temp_fil
             summary_filename="2503.22740.md",
             paper_title="Paper C",
             page=3,
-            chunk="Content from paper C, page 3"
+            chunk="Content from paper C, page 3",
+            similarity_score=0.80
         )
     ]
 
