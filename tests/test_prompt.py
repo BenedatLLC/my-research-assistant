@@ -210,11 +210,13 @@ class TestIntegration:
     def test_multiple_actual_prompts(self):
         """Test combining multiple actual prompt files."""
         result = subst_prompts(
-            ["base-summary-v1", "improve-summary-v1"], 
+            ["base-summary-v1", "improve-summary-v1"],
             text_block="Test content",
-            summary="Test summary"
+            summary="Test summary",
+            feedback="Make it better",
+            previous_summary="Previous test summary"
         )
-        
+
         lines = result.split('\n')
         assert len(lines) > 10  # Should have content from both prompts
         assert "Key ideas of the paper" in result

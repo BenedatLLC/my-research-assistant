@@ -49,6 +49,11 @@ def extract_markdown(text:str) -> str:
 def insert_metadata(markdown:str,
                     pmd:PaperMetadata) -> str:
     """We want to put the paper metadata just after the summary's title.
+
+    INVARIANT: Title Requirement for Summaries
+    The markdown MUST include a title formatted as a level 1 header (starting with '#').
+    If no title is found, this function raises SummarizationError.
+    This requirement is enforced in the prompt templates (see improve-summary-v1.md and improve-summary-v2.md).
     """
     found_title = False
     result = []

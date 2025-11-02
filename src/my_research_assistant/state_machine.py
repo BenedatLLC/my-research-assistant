@@ -113,7 +113,10 @@ class StateMachine:
                 "sem-search <query>", "research <query>", "list"
             ],
             WorkflowState.SUMMARIZED: [
-                "improve <text>", "notes", "find <query>", "sem-search <query>",
+                # INVARIANT: Save Command Availability
+                # The 'save' command MUST be available in SUMMARIZED state to allow users
+                # to save improved summaries after iterative refinement.
+                "save", "improve <text>", "notes", "find <query>", "sem-search <query>",
                 "research <query>", "list"
             ],
             WorkflowState.SEM_SEARCH: [

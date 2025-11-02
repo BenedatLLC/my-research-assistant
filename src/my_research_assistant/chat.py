@@ -413,21 +413,40 @@ Use 'status' for detailed state information.
             self.interface_adapter.show_error(f"Improvement failed: {str(e)}")
     
     async def process_save_command(self):
-        """Process a save summary command using the workflow system."""
-        if self.current_state != "summary_ready":
-            self.interface_adapter.show_error("No summary to save. Process a paper first.")
-            return
-        
+        """Process a save summary command for summarized state."""
         try:
-            result = await self.workflow_runner.save_summary(
-                self.current_paper,
-                self.current_summary,
-                self.current_paper_text
-            )
-            
-            # Reset state after successful save
-            self.current_state = "ready"
-            
+            # Check if we have a selected paper and draft
+            if not self.state_machine.state_vars.selected_paper or not self.state_machine.state_vars.draft:
+                self.interface_adapter.show_error("No summary to save. Summarize a paper first.")
+                return
+
+            paper = self.state_machine.state_vars.selected_paper
+            summary = self.state_machine.state_vars.draft
+
+            # Save the summary
+            from .summarizer import save_summary
+            from .vector_store import index_summary
+
+            print(f"💾 Saving summary for: '{paper.title}'...")
+            file_path = save_summary(summary, paper.paper_id)
+
+            # Index the summary for semantic search
+            print(f"📚 Indexing summary for: '{paper.title}'...")
+            index_summary(paper, FILE_LOCATIONS)
+
+            completion_message = f"""✅ **Summary Saved Successfully!**
+
+**Paper:** {paper.title}
+**Summary Location:** {file_path}
+
+You can continue working with this paper or start a new query."""
+
+            self.render_markdown_response(completion_message)
+            self.add_to_history("assistant", completion_message)
+
+            # Stay in summarized state (save doesn't change state)
+            self.state_machine.stay_in_current_state()
+
         except Exception as e:
             self.interface_adapter.show_error(f"Save failed: {str(e)}")
     
@@ -1036,11 +1055,31 @@ The content has been saved to your results directory and can be referenced later
                     self.interface_adapter.show_error("No summary to improve. Summarize a paper first.")
                     return
 
+                # Load paper text from disk
+                # INVARIANT: Paper Text Loading for Summary Improvements
+                # When improving summaries, the original paper text MUST be loaded from disk.
+                # The full paper text provides necessary context for the LLM to make informed improvements.
+                # Paper text is stored at extracted_paper_text/<paper_id>.md
+                import os
+                paper_id = self.state_machine.state_vars.selected_paper.paper_id
+                paper_text_path = os.path.join(FILE_LOCATIONS.extracted_paper_text_dir, f"{paper_id}.md")
+
+                try:
+                    with open(paper_text_path, 'r', encoding='utf-8') as f:
+                        paper_text = f.read()
+                except FileNotFoundError:
+                    self.interface_adapter.show_error(f"❌ Paper text not found at {paper_text_path}")
+                    return
+                except Exception as e:
+                    self.interface_adapter.show_error(f"❌ Failed to load paper text: {str(e)}")
+                    return
+
                 # Use workflow to improve summary
+                print(f"🔄 Improving summary based on feedback: '{feedback}'...")
                 result = await self.workflow_runner.improve_summary(
                     self.state_machine.state_vars.selected_paper,
                     self.state_machine.state_vars.draft,
-                    "",  # paper_text not needed for improvement
+                    paper_text,  # Load from disk instead of empty string
                     feedback
                 )
 
@@ -1058,8 +1097,23 @@ The content has been saved to your results directory and can be referenced later
                     self.interface_adapter.show_error("No content to improve. Run a search or research query first.")
                     return
 
+                # Determine content type based on state
+                if self.state_machine.current_state.value == "sem-search":
+                    content_type = "semantic search"
+                else:  # research state
+                    content_type = "research"
+
+                # Get original query from state vars
+                original_query = self.state_machine.state_vars.original_query or ""
+
                 # Use workflow to improve content
-                result = await self.workflow_runner.improve_content(self.state_machine.state_vars.draft, feedback)
+                print(f"🔄 Improving {content_type} results based on feedback: '{feedback}'...")
+                result = await self.workflow_runner.improve_content(
+                    self.state_machine.state_vars.draft,
+                    feedback,
+                    content_type,
+                    original_query
+                )
 
                 if hasattr(result, 'content'):
                     # Update the draft content

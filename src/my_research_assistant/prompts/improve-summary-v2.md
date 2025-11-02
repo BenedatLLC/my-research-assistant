@@ -1,12 +1,12 @@
 Please improve the following paper summary based on the user's feedback.
 
 
-**User Feedback:** {feedback}
+**User Feedback:** {{feedback}}
 
 ---
 
 **Previous Summary:**
-{previous_summary}
+{{previous_summary}}
 
 ---
 
@@ -15,17 +15,21 @@ Please improve the following paper summary based on the user's feedback.
 
 ---
 
-Please provide an improved markdown summary that addresses the user's feedback while maintaining the following structure:
+**IMPORTANT FORMATTING REQUIREMENTS:**
 
-1.  **What is the research?**: Begin with a clear, accessible explanation of the problem the paper addresses and why it matters.
-2.  **What are the paper's contributions?**: Clearly articulate the main contributions of the paper.
-3.  **How does this system work?**
-    a. **Methodology**: Provide a detailed, but intutive explanation of the technical approach.
-	b. **Implementation details**: When relevant, discuss important implementation choices, architectural decisions or technical innovations that make the approach practical or scalable.
-4. **Related work and context**: Discuss how the work relates to and builds upon prior research.
-5. **Significance and impact**: Analyze the broader implications of this work.
+Your improved summary MUST follow this exact format:
 
-The title of the markdown summary should be the title of the paper using a markdown level 1 header ("#").
+1. **First line**: The paper title as a markdown level 1 header (starting with a single "#")
+2. **Following sections**: Improve the content based on user feedback while maintaining this structure:
+   - **What is the research?**: Clear, accessible explanation of the problem and why it matters
+   - **What are the paper's contributions?**: Main contributions clearly articulated
+   - **How does this system work?**
+     - **Methodology**: Detailed, intuitive explanation of the technical approach
+     - **Implementation details**: Important implementation choices, architectural decisions, or technical innovations
+   - **Related work and context**: How the work relates to and builds upon prior research
+   - **Significance and impact**: Broader implications of this work
+
+**CRITICAL**: You MUST include the paper title as the first line (# Title). Do not skip the title even if it appears in the previous summary. The title must be present in your output.
 
 ---
 

@@ -893,10 +893,36 @@ created: {timestamp}
                 message=f"Failed to save {content_type} results: {str(e)}"
             )
 
-    async def improve_content(self, current_content: str, feedback: str, content_type: str) -> ProcessingResult:
-        """Improve content (summary, search results, research results) based on feedback."""
+    async def improve_content(self, current_content: str, feedback: str, content_type: str, original_query: str = "") -> ProcessingResult:
+        """Improve content (search results, research results) based on feedback.
+
+        Args:
+            current_content: The current content to improve
+            feedback: User's feedback on what to improve
+            content_type: Type of content ("semantic search" or "research")
+            original_query: The original user query (optional, for context)
+
+        Returns:
+            ProcessingResult with improved content
+
+        INVARIANT: Content Type Mapping
+        The content_type parameter MUST match the current state:
+        - "semantic search" for sem-search state → uses improve-search-v1.md prompt
+        - "research" for research state → uses improve-research-v1.md prompt
+        Invalid content types trigger a fallback to generic improvement with a warning.
+        """
         try:
-            improve_prompt = f"""Improve the following {content_type} based on the user's feedback.
+            from .prompt import subst_prompt
+
+            # Select the appropriate prompt template based on content type
+            if content_type == "semantic search":
+                template_name = "improve-search-v1"
+            elif content_type == "research":
+                template_name = "improve-research-v1"
+            else:
+                # Fallback to generic improvement if content_type is unexpected
+                logger.warning(f"Unexpected content_type '{content_type}', using generic improvement")
+                improve_prompt = f"""Improve the following {content_type} based on the user's feedback.
 
 Current {content_type}:
 {current_content}
@@ -904,6 +930,23 @@ Current {content_type}:
 User feedback: "{feedback}"
 
 Please provide an improved version that addresses the feedback while maintaining the same format and structure."""
+                response = await self.workflow.llm.acomplete(improve_prompt)
+                improved_content = response.text.strip()
+
+                return ProcessingResult(
+                    success=True,
+                    paper=None,
+                    content=improved_content,
+                    message=f"{content_type.title()} improved successfully"
+                )
+
+            # Load and substitute prompt template
+            improve_prompt = subst_prompt(
+                template_name,
+                query=original_query,
+                feedback=feedback,
+                current_content=current_content
+            )
 
             response = await self.workflow.llm.acomplete(improve_prompt)
             improved_content = response.text.strip()
@@ -916,6 +959,7 @@ Please provide an improved version that addresses the feedback while maintaining
             )
 
         except Exception as e:
+            logger.error(f"Failed to improve {content_type}: {str(e)}", exc_info=True)
             return ProcessingResult(
                 success=False,
                 paper=None,

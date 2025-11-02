@@ -3,6 +3,11 @@ Handling of LLM prompts. We store the prompts as markdown template files in the
 directory ./prompts. A prompt can have template variables of the form {{VAR_NAME}}.
 These then must be passed in to subst_prompt() and subst_prompts() to instantiate
 the prompt(s).
+
+INVARIANT: Prompt Variable Syntax
+All prompt templates MUST use double-brace syntax {{variable_name}} for variable substitution.
+Single braces {variable_name} will not be substituted and will appear as literal text in the prompt.
+This is enforced by the subst_prompt() function below.
 """
 from os.path import join, exists
 import re
@@ -25,7 +30,10 @@ def subst_prompt(prompt_name:str,
     """Load the specified prompt from its file and substitute any prompt variables of the form '{{identifier}}'
     from the keyword arguments. Values for the prompt variables come from the keyword
     arguments. If a prompt variable referenced in the prompt is not provided,
-    throws PromptVarError."""
+    throws PromptVarError.
+
+    INVARIANT: Only double-brace {{variable}} syntax is recognized for substitution.
+    Single-brace {variable} syntax will NOT be substituted."""
     try:
         with resources.files(my_research_assistant).joinpath(f"prompts/{prompt_name}.md").open() as f:
             prompt_template = f.read()
