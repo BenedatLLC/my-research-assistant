@@ -6,6 +6,28 @@
 * chat interface with intent detection
 * Handle "old-style" arxiv ids that contain a "/"
 
+## Sunday November 2, 2025
+
+### Bug Fix: Slow `save` Command (~60 Second Delay)
+**Symptom:** `save` command after `sem-search` or `research` taking ~60 seconds to complete.
+**Root Cause:** Unnecessary LLM API call in `save_search_results()` to generate descriptive filename.
+**Fix:** Replaced LLM-based filename generation with simple deterministic approach using `generate_fallback_title()`.
+**Location:** result_storage.py:118
+
+**Symptom:** `save` command after `summarize` re-saving already saved summary.
+**Root Cause:** Summaries are auto-saved during `summarize` command, but `save` didn't check for existing file.
+**Fix:** Added check for existing summary file before attempting to save; displays location if already saved.
+**Location:** chat.py:426-445
+
+## Saturday November 1, 2025
+
+### Bug Fix: `improve` Command Failing for Summaries
+**Symptom:** `improve` command failed when trying to improve summaries with error about missing paper text.
+**Root Cause:** Paper text was not being loaded from disk when calling workflow's `improve_summary()` method.
+**Fix:** Added paper text loading from `extracted_paper_text/<paper_id>.md` before calling improve workflow.
+**Location:** chat.py:1063-1075
+**Note:** Added INVARIANT comment documenting requirement to load paper text from disk for summary improvements.
+
 ## Friday October 31, 2025
 - Running unit tests found a failing test on search results
 - Claude "fixed" it by turing off reranking

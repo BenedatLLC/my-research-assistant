@@ -423,7 +423,28 @@ Use 'status' for detailed state information.
             paper = self.state_machine.state_vars.selected_paper
             summary = self.state_machine.state_vars.draft
 
-            # Save the summary
+            # Check if summary already exists on disk (it should after summarize command)
+            from .paper_manager import get_paper_summary_path
+            existing_summary_path = get_paper_summary_path(paper.paper_id, FILE_LOCATIONS)
+
+            if existing_summary_path:
+                # Summary already exists - just inform the user
+                completion_message = f"""✅ **Summary Already Saved!**
+
+**Paper:** {paper.title}
+**Summary Location:** {existing_summary_path}
+
+The summary was automatically saved when you ran the 'summarize' command.
+You can continue working with this paper or start a new query."""
+
+                self.render_markdown_response(completion_message)
+                self.add_to_history("assistant", completion_message)
+
+                # Stay in summarized state (save doesn't change state)
+                self.state_machine.stay_in_current_state()
+                return
+
+            # If we get here, summary doesn't exist yet (edge case) - save it
             from .summarizer import save_summary
             from .vector_store import index_summary
 

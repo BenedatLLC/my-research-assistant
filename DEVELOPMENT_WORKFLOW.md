@@ -468,6 +468,14 @@ The summarize command isn't working. Can you fix it?
 - Regression test added automatically
 - Full test suite passing
 
+**After the fix:**
+- Update devlog.md with a brief entry documenting:
+  - **Symptom:** What the user experienced
+  - **Root Cause:** Why it was happening
+  - **Fix:** How it was resolved
+  - **Location:** Specific file and line numbers (e.g., `chat.py:426-445`)
+- This helps track bug patterns and improve the development process
+
 ### For Complex Bugs (Design Recommended)
 
 1. Create a short design document explaining:
@@ -698,8 +706,9 @@ pytest -k "test_search"
 
 - **devlog.md** - Development log
   - Chronological log of changes
-  - Original user prompts
+  - Original user prompts (for features via design-implementer)
   - Implementation summaries
+  - Bug fix entries (Symptom, Root Cause, Fix, Location)
   - Outcomes and decisions
 
 - **tests/TESTING_SUMMARY.md** - Test documentation
@@ -718,7 +727,9 @@ When using design-implementer agent:
 
 **You don't need to manually update these!** The doc-maintainer agent handles it.
 
-**devlog.md format**: Length matches complexity. Simple change = 3-5 lines (what + outcome). Major feature = 10-20 lines (context + changes + outcomes). No file lists - use git log.
+**devlog.md format**:
+- Length matches complexity. Simple change = 3-5 lines (what + outcome). Major feature = 10-20 lines (context + changes + outcomes). No file lists - use git log.
+- **Bug fixes** (not using design-implementer): Add manual entry with Symptom, Root Cause, Fix, and Location for pattern tracking
 
 ## Tips for Effective Prompts
 

@@ -114,8 +114,8 @@ async def save_search_results(content: str, query: str, file_locations: FileLoca
     # Ensure results directory exists
     file_locations.ensure_results_dir()
 
-    # Generate descriptive title using LLM
-    descriptive_title = await generate_title_from_query(query, content_type)
+    # Generate descriptive title using simple deterministic approach (no LLM call)
+    descriptive_title = generate_fallback_title(query, content_type)
 
     # Add timestamp for uniqueness and create filename
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
