@@ -169,12 +169,14 @@ def _create_file_handler(logfile: str) -> logging.FileHandler:
     return handler
 
 
-def configure_logging(loglevel: Optional[str] = None, logfile: Optional[str] = None) -> None:
+def configure_logging(loglevel: Optional[str] = None, logfile: Optional[str] = None,
+                      keep_all_loggers:bool = False) -> None:
     """Configure logging for the research assistant.
 
     Args:
         loglevel: Terminal log level (ERROR, WARNING, INFO, DEBUG). If None, no terminal logging.
         logfile: Path to log file. If None, no file logging.
+        keep_all_loggers: Don't supress loggers that give lots of detail
 
     Raises:
         ValueError: If loglevel is not a valid log level
@@ -212,10 +214,11 @@ def configure_logging(loglevel: Optional[str] = None, logfile: Optional[str] = N
         file_handler = _create_file_handler(logfile)
         root_logger.addHandler(file_handler)
 
-    # Suppress LlamaIndex verbose logging
-    logging.getLogger('llama_index').setLevel(logging.WARNING)
+    if not keep_all_loggers:
+        # Suppress LlamaIndex verbose logging
+        logging.getLogger('llama_index').setLevel(logging.WARNING)
 
-    # Also suppress some other verbose loggers
-    logging.getLogger('openai').setLevel(logging.WARNING)
-    logging.getLogger('httpx').setLevel(logging.WARNING)
-    logging.getLogger('httpcore').setLevel(logging.WARNING)
+        # Also suppress some other verbose loggers
+        logging.getLogger('openai').setLevel(logging.WARNING)
+        logging.getLogger('httpx').setLevel(logging.WARNING)
+        logging.getLogger('httpcore').setLevel(logging.WARNING)

@@ -12,6 +12,7 @@ DEFAULT_MODEL = os.environ.get('DEFAULT_MODEL', 'gpt-4o')
 DEFAULT_EMBEDDING_MODEL = os.environ.get('DEFAULT_EMBEDDING_MODEL', 'text-embedding-ada-002')
 MODEL_API_BASE = os.environ.get('MODEL_API_BASE', 'https://api.openai.com/v1')
 MODEL_API_KEY = os.environ.get('OPENAI_API_KEY')
+assert MODEL_API_KEY is not None and MODEL_API_KEY!="", "Need to set environment variable OPENAI_API_KEY"
 
 # Configure the global embedding model for LlamaIndex
 # This model is used for all vector indexing and retrieval operations
@@ -41,4 +42,3 @@ def get_default_model(**model_kwargs) -> LLM:
     else:
         return OpenAI(model=DEFAULT_MODEL, api_base=MODEL_API_BASE,
                       api_key=MODEL_API_KEY, **model_kwargs)
-

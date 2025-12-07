@@ -28,6 +28,7 @@ my-research-assistant = "my_research_assistant:main"
 chat = "my_research_assistant.chat:main"
 rebuild-index = "my_research_assistant.vector_store:main"
 search-tester = "my_research_assistant.search_tester:main"
+check-models = "my_research_assistant.check_models:main"
 
 [build-system]
 requires = ["hatchling"]
