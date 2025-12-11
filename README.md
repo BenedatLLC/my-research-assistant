@@ -438,9 +438,11 @@ uv run pytest tests/test_state_machine.py  # Specific test file
 - **Centralized config** via `models.py`
 - **Environment-based selection**:
   - `DEFAULT_MODEL` - LLM model name (defaults to `gpt-4o`)
+  - `DEFAULT_REASONING_MODEL` - Reasoning model for deep analytical tasks (defaults to `gpt-5.1`)
   - `DEFAULT_EMBEDDING_MODEL` - Embedding model (defaults to `text-embedding-ada-002`)
   - `MODEL_API_BASE` - API endpoint URL (defaults to OpenAI, supports API gateways)
   - `OPENAI_API_KEY` - API authentication key
+- **Reasoning model**: Configured with `reasoning_effort="high"` for maximum analytical capability
 - **OpenAI integration**: Configurable model parameters
 - **API gateway support**: Use `MODEL_API_BASE` to route through proxies or local servers
 - **Caching support**: Performance optimization for repeated queries

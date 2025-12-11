@@ -416,6 +416,79 @@ def test_run_with_timeout_exception():
     assert "test error" in str(exc_info.value)
 
 
+def test_reasoning_model():
+    """Test that the reasoning model can be obtained and used successfully."""
+    from my_research_assistant.models import get_reasoning_model
+
+    # Get the reasoning model
+    llm = get_reasoning_model()
+
+    # Make a simple completion call
+    prompt = "What is 2+2? Answer with just the number."
+    response = llm.complete(prompt)
+
+    # Validate that we got a response
+    assert response is not None, "Reasoning model should return a response"
+    assert hasattr(response, 'text'), "Response should have a text attribute"
+    assert len(response.text) > 0, "Response text should not be empty"
+    assert '4' in response.text, "Response should contain the answer"
+
+    print(f"Reasoning model test successful. Response: {response.text.strip()}")
+
+
+def test_reasoning_model_caching():
+    """Test that the reasoning model caching works correctly."""
+    from my_research_assistant.models import get_reasoning_model
+
+    # Get the reasoning model twice with same kwargs
+    llm1 = get_reasoning_model()
+    llm2 = get_reasoning_model()
+
+    # They should be the same object (cached)
+    assert llm1 is llm2, "Same reasoning model should be returned from cache"
+
+    # Get with different kwargs
+    llm3 = get_reasoning_model(temperature=0.5)
+
+    # This should be a different object
+    assert llm1 is not llm3, "Different kwargs should return a new reasoning model instance"
+
+    print("Reasoning model caching test successful")
+
+
+def test_reasoning_model_default():
+    """Test that the reasoning model uses the correct default."""
+    from my_research_assistant.models import DEFAULT_REASONING_MODEL
+    import os
+
+    # Check that the default is gpt-5.1 (unless overridden by env var)
+    if 'DEFAULT_REASONING_MODEL' not in os.environ:
+        assert DEFAULT_REASONING_MODEL == 'gpt-5.1', "Default reasoning model should be gpt-5.1"
+
+    print(f"Reasoning model default test successful. Default: {DEFAULT_REASONING_MODEL}")
+
+
+def test_reasoning_model_env_var():
+    """Test that the reasoning model respects the environment variable."""
+    import os
+    from unittest.mock import patch
+    import importlib
+    import my_research_assistant.models as models_module
+
+    # Test with custom environment variable
+    with patch.dict(os.environ, {'DEFAULT_REASONING_MODEL': 'gpt-4o'}):
+        # Need to reload the module to pick up the new env var
+        importlib.reload(models_module)
+
+        from my_research_assistant.models import DEFAULT_REASONING_MODEL
+        assert DEFAULT_REASONING_MODEL == 'gpt-4o', "Should use environment variable value"
+
+    # Reload again OUTSIDE the patch context to restore original state
+    importlib.reload(models_module)
+
+    print("Reasoning model environment variable test successful")
+
+
 def test_check_models_loglevel_option(capsys):
     """Test check-models command with --loglevel option."""
     from my_research_assistant.check_models import main

@@ -150,6 +150,7 @@ The system uses a template-based prompt architecture with:
 ### Environment Configuration
 - `DOC_HOME` - Required environment variable specifying base directory for all data
 - `DEFAULT_MODEL` - Optional, defaults to 'gpt-4o' for LLM operations
+- `DEFAULT_REASONING_MODEL` - Optional, defaults to 'gpt-5.1' for reasoning tasks requiring deeper analytical thinking
 - `DEFAULT_EMBEDDING_MODEL` - Optional, defaults to 'text-embedding-ada-002' for embeddings
 - `MODEL_API_BASE` - Optional, defaults to OpenAI API, can use gateway or local server
 - `OPENAI_API_KEY` - Required for LLM and embedding operations
@@ -369,7 +370,10 @@ cp designs/TEMPLATE.md designs/new-feature.md
 
 ### Model Usage
 - Centralized model configuration supports caching for performance
-- Environment-based model selection (`DEFAULT_MODEL` env var, defaults to 'gpt-4o')
+- Environment-based model selection:
+  - `DEFAULT_MODEL` env var (defaults to 'gpt-4o') for general LLM operations
+  - `DEFAULT_REASONING_MODEL` env var (defaults to 'gpt-5.1') for reasoning tasks requiring deeper analytical thinking
+- Reasoning model configured with `reasoning_effort="high"` by default for maximum analytical capability
 - OpenAI integration with configurable model parameters
 - Template-based prompt system with versioned prompts for different operations
 
