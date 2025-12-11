@@ -472,19 +472,19 @@ def test_reasoning_model_env_var():
     """Test that the reasoning model respects the environment variable."""
     import os
     from unittest.mock import patch
+    import importlib
+    import my_research_assistant.models as models_module
 
     # Test with custom environment variable
     with patch.dict(os.environ, {'DEFAULT_REASONING_MODEL': 'gpt-4o'}):
         # Need to reload the module to pick up the new env var
-        import importlib
-        import my_research_assistant.models as models_module
         importlib.reload(models_module)
 
         from my_research_assistant.models import DEFAULT_REASONING_MODEL
         assert DEFAULT_REASONING_MODEL == 'gpt-4o', "Should use environment variable value"
 
-        # Reload again to restore original state
-        importlib.reload(models_module)
+    # Reload again OUTSIDE the patch context to restore original state
+    importlib.reload(models_module)
 
     print("Reasoning model environment variable test successful")
 
