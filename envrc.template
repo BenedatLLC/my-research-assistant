@@ -3,6 +3,7 @@ export PATH="`pwd`/.venv/bin:$PATH"
 export DOC_HOME=`pwd`/docs
 export OPENAI_API_KEY=CHANGEME
 export DEFAULT_MODEL="gpt-4o"
+export DEFAULT_REASONING_MODEL="gpt-5.1"
 export DEFAULT_EMBEDDING_MODEL="text-embedding-ada-002"
 export MODEL_API_BASE="https://api.openai.com/v1"
 export GOOGLE_SEARCH_ENGINE_ID=CHANGEME
