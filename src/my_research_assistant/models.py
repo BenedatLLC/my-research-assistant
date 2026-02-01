@@ -13,6 +13,7 @@ DEFAULT_REASONING_MODEL = os.environ.get('DEFAULT_REASONING_MODEL', 'gpt-5.1')
 DEFAULT_EMBEDDING_MODEL = os.environ.get('DEFAULT_EMBEDDING_MODEL', 'text-embedding-ada-002')
 MODEL_API_BASE = os.environ.get('MODEL_API_BASE', 'https://api.openai.com/v1')
 MODEL_API_KEY = os.environ.get('OPENAI_API_KEY')
+MODEL_TIMEOUT = float(os.environ.get('MODEL_TIMEOUT', '180.0'))  # seconds
 assert MODEL_API_KEY is not None and MODEL_API_KEY!="", "Need to set environment variable OPENAI_API_KEY"
 
 # Configure the global embedding model for LlamaIndex
@@ -38,14 +39,16 @@ def get_default_model(**model_kwargs) -> LLM:
     global _CACHED_MODEL_KWARGS
     if _CACHED_MODEL is None:
         _CACHED_MODEL = OpenAI(model=DEFAULT_MODEL, api_base=MODEL_API_BASE,
-                               api_key=MODEL_API_KEY, **model_kwargs)
+                               api_key=MODEL_API_KEY, timeout=MODEL_TIMEOUT,
+                               **model_kwargs)
         _CACHED_MODEL_KWARGS = model_kwargs
         return _CACHED_MODEL
     elif model_kwargs==_CACHED_MODEL_KWARGS:
         return _CACHED_MODEL
     else:
         return OpenAI(model=DEFAULT_MODEL, api_base=MODEL_API_BASE,
-                      api_key=MODEL_API_KEY, **model_kwargs)
+                      api_key=MODEL_API_KEY, timeout=MODEL_TIMEOUT,
+                      **model_kwargs)
 
 def get_reasoning_model(**model_kwargs) -> LLM:
     """Instantiate an instance of the reasoning model. Will cache the first model
@@ -68,11 +71,13 @@ def get_reasoning_model(**model_kwargs) -> LLM:
 
     if _CACHED_REASONING_MODEL is None:
         _CACHED_REASONING_MODEL = OpenAI(model=DEFAULT_REASONING_MODEL, api_base=MODEL_API_BASE,
-                                         api_key=MODEL_API_KEY, **model_kwargs)
+                                         api_key=MODEL_API_KEY, timeout=MODEL_TIMEOUT,
+                                         **model_kwargs)
         _CACHED_REASONING_MODEL_KWARGS = model_kwargs
         return _CACHED_REASONING_MODEL
     elif model_kwargs==_CACHED_REASONING_MODEL_KWARGS:
         return _CACHED_REASONING_MODEL
     else:
         return OpenAI(model=DEFAULT_REASONING_MODEL, api_base=MODEL_API_BASE,
-                      api_key=MODEL_API_KEY, **model_kwargs)
+                      api_key=MODEL_API_KEY, timeout=MODEL_TIMEOUT,
+                      **model_kwargs)
